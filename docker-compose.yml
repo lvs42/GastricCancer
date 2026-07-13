@@ -1,0 +1,15 @@
+services:
+  tfm:
+    build: .
+    image: tfm-gastric-cancer:dev
+    volumes:
+      - .:/workspace
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    stdin_open: true
+    tty: true

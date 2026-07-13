@@ -1,0 +1,39 @@
+gashisdb_80:
+  resolution: 80
+  mean:
+  - 0.9019
+  - 0.7846
+  - 0.9066
+  std:
+  - 0.1276
+  - 0.1786
+  - 0.0993
+  n_sample_images: 5000
+  note: Media/std por canal RGB en [0,1], sobre muestra estratificada por clase (seed
+    42). Usar en transforms.Normalize en lugar de los valores de ImageNet.
+gashisdb_120:
+  resolution: 120
+  mean:
+  - 0.9035
+  - 0.7863
+  - 0.907
+  std:
+  - 0.1262
+  - 0.1778
+  - 0.0995
+  n_sample_images: 5000
+  note: Media/std por canal RGB en [0,1], sobre muestra estratificada por clase (seed
+    42). Usar en transforms.Normalize en lugar de los valores de ImageNet.
+gashisdb_160:
+  resolution: 160
+  mean:
+  - 0.9041
+  - 0.7873
+  - 0.9079
+  std:
+  - 0.1259
+  - 0.1774
+  - 0.0983
+  n_sample_images: 5000
+  note: Media/std por canal RGB en [0,1], sobre muestra estratificada por clase (seed
+    42). Usar en transforms.Normalize en lugar de los valores de ImageNet.
