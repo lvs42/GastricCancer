@@ -8,3 +8,9 @@ PyYAML==6.0.1
 nbformat==5.10.4
 nbconvert==7.16.4
 ipykernel==6.29.5
+
+# Track B: extractor de features + clasificador
+timm==1.0.9
+catboost==1.2.7
+scikit-learn==1.5.2
+opencv-python-headless==4.10.0.84
