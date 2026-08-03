@@ -77,6 +77,13 @@ def extract_features(paths: list[Path], resolution: int, device: torch.device, b
         print(f"  features {done}/{len(paths)}", end="\r", flush=True)
 
     print()
+
+    # Libera la VRAM cacheada por PyTorch: si no, CatBoost (GPU) ve menos memoria
+    # libre de la real y puede quedarse sin memoria al usar depths mas altos.
+    del model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
     return np.concatenate(chunks, axis=0) #devovlemos los lotes concatenados
 
 

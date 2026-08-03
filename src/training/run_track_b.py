@@ -14,7 +14,6 @@ import numpy as np
 import torch
 
 from src.data.loaders import (
-    LEAKAGE_DISCLAIMER,
     VALID_RESOLUTIONS,
     load_inventory,
     split_train_test,
@@ -163,7 +162,6 @@ def main() -> None:
         "track": "B",
         "description": "Baseline corregido sin fuga: EfficientNetV2B0 (timm, congelado) + CatBoost.",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-        "limitacion_metodologica": LEAKAGE_DISCLAIMER,
         "config": {
             "resolution_px": resolution,
             "backbone": BACKBONE_NAME,
@@ -196,7 +194,6 @@ def main() -> None:
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(output, fh, indent=2, ensure_ascii=False)
 
-    # Resumen impreso. El texto de limitacion aparece tambien aqui (requisito 3c).
     print(f"\n{'=' * 70}\nRESUMEN — Track B @ {resolution}px ({len(SEEDS)} semillas)\n{'=' * 70}")
     for name in ["accuracy", "balanced_accuracy", "precision_abnormal", "recall_abnormal",
                  "f1_abnormal", "f1_macro", "auc_roc", "specificity"]:
@@ -205,7 +202,6 @@ def main() -> None:
     print(f"\nHiperparametros por semilla:")
     for r in per_seed_results:
         print(f"  seed {r['seed']}: {r['best_params']}")
-    print(f"\nLIMITACION METODOLOGICA:\n  {LEAKAGE_DISCLAIMER}")
     print(f"\nResultados guardados en: {out_path}")
 
 
