@@ -20,8 +20,8 @@ from src.data.loaders import (
     validate_resolution,
 )
 from src.evaluation.metrics import aggregate_across_seeds, bootstrap_ci, compute_metrics
-from src.features.extractors import BACKBONE_NAME, get_or_compute_features
-from src.models.classifiers import PARAM_GRID, fit_final_model, tune_hyperparameters
+from src.features.extractors import BACKBONE_NAME, get_or_compute_features, get_or_compute_augmented_features, K_AUGMENTED_VIEWS
+from src.models.classifiers import PARAM_GRID, fit_final_model, tune_hyperparameters, fit_final_model_augmentation, tune_hyperparameters_augmentation
 
 # Cada semilla generará su propio split train/test
 SEEDS: tuple[int, ...] = (42, 43, 44, 45, 46)
@@ -37,36 +37,56 @@ project_root = absolute_file_path.parents[2]
 RESULTS_DIR = project_root / "results"
 
 
-def run_seed(features: np.ndarray, y: np.ndarray, seed: int) -> tuple[dict, dict]:
+def run_seed(features: np.ndarray, y: np.ndarray, seed: int, aug_features = None) -> tuple[dict, dict]:
     """Un experimento completo para una semilla"""
 
     print(f"\n{'=' * 70}\nSEMILLA {seed}\n{'=' * 70}")
 
     # separar train y test
     train_idx, test_idx = split_train_test(y, seed=seed, test_size=TEST_SIZE)
-    x_train, y_train = features[train_idx], y[train_idx]
-    x_test, y_test = features[test_idx], y[test_idx]
+    x_train = features[train_idx]
+    y_train = y[train_idx]
+
+    x_test = features[test_idx]
+    y_test = y[test_idx]
 
     print(
         f"Train: {len(y_train)} (Abnormal {int(y_train.sum())}) | "
         f"Test: {len(y_test)} (Abnormal {int(y_test.sum())})"
     )
 
+    if aug_features is None:
     
-    print(f"\nTuning por CV (k=5) sobre el 80% de train...")
-    #busqueda de los mejores hiperparámetros (solo sobre train(que dentro lleva el conjunto de validación))
-    best_params, cv_info = tune_hyperparameters(x_train, y_train, seed=seed)
+        print(f"\nTuning por CV (k=5) sobre el 80% de train...")
+        #busqueda de los mejores hiperparámetros (solo sobre train(que dentro lleva el conjunto de validación))
+        best_params, cv_info = tune_hyperparameters(x_train, y_train, seed=seed)
 
-    print(
-        f"\nMejores hiperparametros: {best_params}\n"
-        f"CV balanced accuracy: {cv_info['best_cv_balanced_accuracy_mean']:.4f} "
-        f"± {cv_info['best_cv_balanced_accuracy_std']:.4f}"
-    )
+        print(
+            f"\nMejores hiperparametros: {best_params}\n"
+            f"CV balanced accuracy: {cv_info['best_cv_balanced_accuracy_mean']:.4f} "
+            f"± {cv_info['best_cv_balanced_accuracy_std']:.4f}"
+        )
 
 
-    print("\nReentrenando modelo final sobre el 80% completo...")
-    # Entrenameinto final del mdoelo con los mejores hiperparámetros encontrados + todo el conjunto de train
-    model = fit_final_model(x_train, y_train, best_params, seed=seed)
+        print("\nReentrenando modelo final sobre el 80% completo...")
+        # Entrenameinto final del mdoelo con los mejores hiperparámetros encontrados + todo el conjunto de train
+        model = fit_final_model(x_train, y_train, best_params, seed=seed)
+
+    else:
+        aug_features_train = aug_features[train_idx]
+        print(f"\nTuning por CV (k=5) + daat AUGMENTATION sobre el 80% de train...")
+
+        best_params, cv_info = tune_hyperparameters_augmentation(x_train, y_train,aug_features_train, seed=seed)
+
+        print(
+            f"\nMejores hiperparametros: {best_params}\n"
+            f"CV balanced accuracy: {cv_info['best_cv_balanced_accuracy_mean']:.4f} "
+            f"± {cv_info['best_cv_balanced_accuracy_std']:.4f}"
+        )
+
+
+        print("\nReentrenando modelo final sobre el 80% completo + vistas aumentadas")
+        model = fit_final_model_augmentation(x_train, y_train, aug_features_train, best_params, seed=seed)
 
     #y_pred = model.predict(x_test).astype(np.int64).ravel()
     y_pred = model.predict(x_test).astype(np.int64) # devuelve clase -> convertir a int -> (N,1 a N,0)
@@ -103,6 +123,8 @@ def main() -> None:
     parser.add_argument("--resolution", type=int, required=True, choices=VALID_RESOLUTIONS)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--no-strict-counts", action="store_true")
+    parser.add_argument("--experiment",choices=["baseline","augmentation",],default="baseline")
+    parser.add_argument("--k",type=int,default=K_AUGMENTED_VIEWS)
 
     args = parser.parse_args()
 
@@ -122,7 +144,6 @@ def main() -> None:
     separator = "=" * 70
 
     print(separator)
-    print(f"TRACK B — {BACKBONE_NAME} congelado + CatBoost")
     print(f"Resolución: {resolution}px")
     print(f"Dispositivo: {device}")
     print(separator)
@@ -143,13 +164,19 @@ def main() -> None:
     features = get_or_compute_features(paths, resolution, device, batch_size=args.batch_size)
 
 
+    aug_features = None
+    if args.experiment == "augmentation":
+        aug_features = get_or_compute_augmented_features(
+            paths, resolution, device, k=args.k, batch_size=args.batch_size
+        )
+
     # Listas para guardar los resultados de todas las semillas.
-    per_seed_results: list[dict] = []
-    per_seed_flat: list[dict] = []
+    per_seed_results = []
+    per_seed_flat = []
 
     # repetimos el experimento completo por cada semilla
     for seed in SEEDS:
-        result, flat = run_seed(features, y, seed)
+        result, flat = run_seed(features, y, seed, aug_features=aug_features)
         per_seed_results.append(result)
         per_seed_flat.append(flat)
 
@@ -158,11 +185,41 @@ def main() -> None:
 
     ############
     #RESULTADOS
+    if args.experiment == "baseline":
+        track_name = "Baseline"
+
+        description = (
+            "Baseline: "
+            "EfficientNetV2B0 + CatBoost."
+        )
+
+        output_filename = (
+            f"baseline_{resolution}px_results.json"
+        )
+
+        summary_name = "Baseline"
+
+    else:
+        track_name = "Augmentation"
+
+        description = (
+            "Experimento con data augmentation: "
+            "EfficientNetV2B0 congelado + CatBoost. "
+            "Las vistas aumentadas se usan únicamente en el entrenamiento de cada fold."
+        )
+
+        output_filename = (
+            f"augmentation_{resolution}px_results.json"
+        )
+
+        summary_name = "Augmentation"
+
     output = {
-        "track": "B",
-        "description": "Baseline corregido sin fuga: EfficientNetV2B0 (timm, congelado) + CatBoost.",
+        "track": track_name,
+        "description": description,
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "config": {
+            "experiment": args.experiment,
             "resolution_px": resolution,
             "backbone": BACKBONE_NAME,
             "backbone_frozen": True,
@@ -179,6 +236,12 @@ def main() -> None:
             "n_images": int(len(y)),
             "n_abnormal": n_abn,
             "n_normal": n_nor,
+            "augmentation_enabled": (args.experiment == "augmentation"),
+            "augmentation_views_per_image": (
+                args.k
+                if args.experiment == "augmentation"
+                else 0
+            ),
         },
         "environment": {
             "python": platform.python_version(),
@@ -190,11 +253,12 @@ def main() -> None:
     }
 
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = RESULTS_DIR / f"track_b_{resolution}px_results.json"
+    out_path = (RESULTS_DIR / output_filename)
     with open(out_path, "w", encoding="utf-8") as fh:
         json.dump(output, fh, indent=2, ensure_ascii=False)
 
-    print(f"\n{'=' * 70}\nRESUMEN — Track B @ {resolution}px ({len(SEEDS)} semillas)\n{'=' * 70}")
+    print(f"\n{'=' * 70}\n RESUMEN — {summary_name} @ {resolution}px ({len(SEEDS)} semillas)\n {'=' * 70}")
+    
     for name in ["accuracy", "balanced_accuracy", "precision_abnormal", "recall_abnormal",
                  "f1_abnormal", "f1_macro", "auc_roc", "specificity"]:
         stat = aggregated[name]
