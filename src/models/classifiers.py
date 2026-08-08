@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 from itertools import product
 
 import numpy as np
@@ -16,6 +17,12 @@ PARAM_GRID: dict[str, list] = {
     "iterations": [300, 500, 700], #número de árboles que construye CatBoost
     "learning_rate": [0.05, 0.1, 0.2],
     "depth": [4, 6, 8],
+}
+
+PARAM_GRID_PRUEBA: dict[str, list] = {
+    "iterations": [300], #número de árboles que construye CatBoost
+    "learning_rate": [0.05],
+    "depth": [4, 6],
 }
 
 N_FOLDS = 5
@@ -151,9 +158,9 @@ def tune_hyperparameters_augmentation( x_train: np.ndarray, y_train: np.ndarray,
 
     grid = []
 
-    for iterations in [300, 500, 700]: #creamos las 27 combianciones de configuraciones
-        for learning_rate in [0.05, 0.1, 0.2]:
-            for depth in [4, 6, 8]:
+    for iterations in [300, 500, 700]: #  
+        for learning_rate in [0.05, 0.1, 0.2]: #
+            for depth in [4, 6, 8]: #
                 params = {
                     "iterations": iterations,
                     "learning_rate": learning_rate,
@@ -162,7 +169,7 @@ def tune_hyperparameters_augmentation( x_train: np.ndarray, y_train: np.ndarray,
 
                 grid.append(params)
 
-     
+
     results = []
 
     k = aug_features_train.shape[1]
@@ -194,10 +201,14 @@ def tune_hyperparameters_augmentation( x_train: np.ndarray, y_train: np.ndarray,
             model = build_classifier(params, class_weights, seed)
             model.fit(x_fit, y_fit)
             y_pred = model.predict(x_train[val_fold]) #predice con 1 fold restante
-            
+
             #metrica balanced accuracy porque por ahora el data set se encuentra desbaalnceado
             fold_scores.append(balanced_accuracy_score(y_train[val_fold], y_pred))#guarda el accuracy balanceado resultante del fold restante
 
+            # x_fit/augmented son ~4x el tamano del fold: liberar ya, si no el pico de memoria
+            # se acumula a lo largo de las 135 iteraciones (27 configs x 5 folds) del grid search.
+            del normal, augmented, x_fit, labels, augmented_labels, y_fit, model, y_pred
+            gc.collect()
 
         #almacenamos resultados de cada configuracion
         entry = {
@@ -207,7 +218,7 @@ def tune_hyperparameters_augmentation( x_train: np.ndarray, y_train: np.ndarray,
             "cv_fold_scores": [float(s) for s in fold_scores],
         }
 
-        
+
         results.append(entry)
         print(
             f"  [{i}/{len(grid)}] {params} -> "
@@ -242,9 +253,12 @@ def fit_final_model_augmentation(x_train: np.ndarray, y_train: np.ndarray, aug_f
 
 
     class_weights = compute_class_weights(y_fit)
-    
+
     model = build_classifier(params, class_weights, seed)
     #print(x_fit.shape)
     model.fit(x_fit, y_fit)
-        
+
+    del x_fit, y_fit, augmented, augmented_labels
+    gc.collect()
+
     return model

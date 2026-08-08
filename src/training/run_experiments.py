@@ -5,6 +5,7 @@ python -m src.training.run_track_b --resolution 160 """
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import platform
 from datetime import datetime, timezone
@@ -12,6 +13,21 @@ from pathlib import Path
 
 import numpy as np
 import torch
+
+import multiprocessing
+import traceback
+from queue import Empty
+
+import time
+
+
+def _current_rss_gb() -> float:
+    """RAM residente actual del proceso (para ver si se acumula memoria entre semillas)."""
+    with open("/proc/self/status") as fh:
+        for line in fh:
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / (1024 ** 2)  # kB -> GB
+    return float("nan")
 
 from src.data.loaders import (
     VALID_RESOLUTIONS,
@@ -27,6 +43,7 @@ from src.models.classifiers import PARAM_GRID, fit_final_model, tune_hyperparame
 SEEDS: tuple[int, ...] = (42, 43, 44, 45, 46)
 
 TEST_SIZE = 0.2 #20%
+SEED_TIMEOUT_SECONDS = 6 * 60 * 60 #margen de seis horas por semilla
 
 
 current_file = Path(__file__)
@@ -41,6 +58,7 @@ def run_seed(features: np.ndarray, y: np.ndarray, seed: int, aug_features = None
     """Un experimento completo para una semilla"""
 
     print(f"\n{'=' * 70}\nSEMILLA {seed}\n{'=' * 70}")
+    print(f"RAM residente al empezar la semilla: {_current_rss_gb():.2f} GB")
 
     # separar train y test
     train_idx, test_idx = split_train_test(y, seed=seed, test_size=TEST_SIZE)
@@ -114,8 +132,159 @@ def run_seed(features: np.ndarray, y: np.ndarray, seed: int, aug_features = None
     }
     # Solo los escalares se agregan entre semillas (la matriz de confusion no).
     flat = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
+
+    # liberar explicitamente antes de pasar a la siguiente semilla: CatBoost en GPU no siempre
+    # libera sus buffers internos solo por refcounting entre llamadas sucesivas a .fit()
+    del x_train, y_train, x_test, y_test, model, y_pred, y_score
+    if aug_features is not None:
+        del aug_features_train
+    gc.collect()
+    print(f"RAM residente al terminar la semilla: {_current_rss_gb():.2f} GB")
+
     return seed_result, flat
 
+
+
+def _run_seed_worker(resolution, batch_size, experiment, k, seed, strict_counts, result_queue):
+    """Ejecuta una semilla completa como un proceso independiente"""
+
+    try:
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+
+        paths, y = load_inventory(resolution, strict_counts=strict_counts)
+        features = get_or_compute_features(paths, resolution, device, batch_size)
+
+        aug_features = None
+
+        if experiment == "augmentation":
+            aug_features = get_or_compute_augmented_features(paths, resolution, device, k, batch_size)
+        seed_result, flat = run_seed(features, y, seed, aug_features=aug_features)
+
+        result_queue.put(("OK", seed_result, flat,))
+
+    except Exception as error:
+        error_message = (f"{type(error).__name__}: {error}")
+        error_traceback = traceback.format_exc()
+
+        result_queue.put(("ERROR", error_message, error_traceback,))
+
+
+def run_seeds_in_separate_processes(resolution, batch_size, experiment, k, strict_counts):
+    """Ejecuta cada semilla en un proceso independiente"""
+
+    context = multiprocessing.get_context("spawn")
+
+
+    per_seed_results = []
+    per_seed_flat = []
+
+    for seed in SEEDS:
+        print()
+        print("=" * 70)
+        print(f"CREANDO PROCESO PARA LA SEMILLA {seed}")
+        print("=" * 70)
+
+        result_queue = context.Queue()
+
+        process = context.Process(target=_run_seed_worker, args=(
+                                                                    resolution,
+                                                                    batch_size,
+                                                                    experiment,
+                                                                    k,
+                                                                    seed,
+                                                                    strict_counts,
+                                                                    result_queue,
+                                                                ),
+        )
+
+        process.start()
+
+        start_time = time.monotonic()
+        message = None
+
+        while message is None:
+
+            try:
+                message = result_queue.get(timeout=5)
+
+            except Empty:
+                elapsed_time = (time.monotonic() - start_time)
+
+                if not process.is_alive():
+                    process.join()
+
+                    exit_code = process.exitcode
+
+                    result_queue.close()
+                    result_queue.join_thread()
+                    process.close()
+
+                    raise RuntimeError(
+                        f"La semilla {seed} terminó sin "
+                        f"devolver resultados. "
+                        f"Exitcode: {exit_code}. "
+                        f"Puede haber sido terminada "
+                        f"por falta de memoria."
+                    )
+
+                if elapsed_time > SEED_TIMEOUT_SECONDS:
+                    process.terminate()
+                    process.join()
+
+                    result_queue.close()
+                    result_queue.join_thread()
+                    process.close()
+
+                    raise RuntimeError(f"La semilla número {seed} superó el límite de segundos especificado")
+
+        process.join()
+
+        exit_code = process.exitcode
+
+        result_queue.close()
+        result_queue.join_thread()
+        process.close()
+
+        status = message[0]
+
+        if status == "ERROR":
+            error_message = message[1]
+            error_traceback = message[2]
+
+            raise RuntimeError(
+                f"La semilla número {seed} produjo un error.\n"
+                f"Exitcode: {exit_code}\n"
+                f"{error_message}\n\n"
+                f"{error_traceback}" #que pasooo
+            )
+
+        if status != "OK":
+            raise RuntimeError(f"Estado desconocido recibido para la semilla {seed}: {status}")
+
+
+        seed_result = message[1]
+        flat = message[2]
+
+        per_seed_results.append(seed_result)
+        per_seed_flat.append(flat)
+
+        print(
+            f"\nProceso de la semilla {seed} finalizado. "
+            f"MEMORIA LIBERADA"
+        )
+
+    return per_seed_results, per_seed_flat
+
+
+
+##############################################################################
+
+###### MAIN #########################################################
+
+##############################################################################
 
 def main() -> None:
     parser = argparse.ArgumentParser() #permite recibir parámetros por terminal
@@ -160,10 +329,26 @@ def main() -> None:
     print(f"Normal: {n_nor}")
     print()
 
-     # si existe cache la carga, sino ejecutar tf_efficientnetv2_b0 para crearlo
-    features = get_or_compute_features(paths, resolution, device, batch_size=args.batch_size)
+    # si existe cache la carga, sino ejecutar tf_efficientnetv2_b0 para crearlo
+    #features = get_or_compute_features(paths, resolution, device, batch_size=args.batch_size)
 
+    strict_counts = not args.no_strict_counts
+    per_seed_results, per_seed_flat = (
+        run_seeds_in_separate_processes(
+            resolution=resolution,
+            batch_size=args.batch_size,
+            experiment=args.experiment,
+            k=args.k,
+            strict_counts=strict_counts
+        )
+    )
 
+    
+    aggregated = aggregate_across_seeds(
+        per_seed_flat
+    )
+
+    """
     aug_features = None
     if args.experiment == "augmentation":
         aug_features = get_or_compute_augmented_features(
@@ -181,7 +366,7 @@ def main() -> None:
         per_seed_flat.append(flat)
 
     aggregated = aggregate_across_seeds(per_seed_flat)
-    
+    """
 
     ############
     #RESULTADOS
@@ -270,4 +455,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     main()

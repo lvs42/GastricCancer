@@ -96,8 +96,9 @@ def get_or_compute_features(paths: list[Path], resolution: int, device: torch.de
     FEATURES_DIR.mkdir(parents=True, exist_ok=True)
     cache_path = FEATURES_DIR / f"{BACKBONE_NAME}_{resolution}px.npy"
 
-    if cache_path.exists(): #si ya existe el archivo 
-        features = np.load(cache_path) #Carga las características previamente calculadas
+    if cache_path.exists(): #si ya existe el archivo
+        # mmap: no carga el array entero en RAM, el SO pagina bajo demanda y puede liberarlo si hace falta memoria
+        features = np.load(cache_path, mmap_mode="r") #Carga las características previamente calculadas
 
         # El cache solo es valido si cubre exactamente el inventario actual.
         if features.shape[0] != len(paths):
@@ -111,6 +112,8 @@ def get_or_compute_features(paths: list[Path], resolution: int, device: torch.de
     print(f"Extrayendo features de {len(paths)} imagenes a {resolution}px ({BACKBONE_NAME})...")
     features = extract_features(paths, resolution, device, batch_size)
     np.save(cache_path, features)
+    del features #libera la copia en RAM: se relee mapeada a disco para no duplicar el array completo
+    features = np.load(cache_path, mmap_mode="r")
     print(f"Features guardadas en {cache_path} {features.shape}")
     return features
 
@@ -229,9 +232,10 @@ def get_or_compute_augmented_features(paths: list[Path], resolution: int, device
 
     shape = (len(paths), k, 1280)
     
-    if cache_path.exists(): #si ya existe el archivo 
-        features = np.load(cache_path) #Carga las características previamente calculadas
-    
+    if cache_path.exists(): #si ya existe el archivo
+        # mmap: no carga el array entero en RAM, el SO pagina bajo demanda y puede liberarlo si hace falta memoria
+        features = np.load(cache_path, mmap_mode="r") #Carga las características previamente calculadas
+
          # El cache solo es valido si cubre exactamente el inventario actual.
         if features.shape != shape:
             raise ValueError(
@@ -240,10 +244,12 @@ def get_or_compute_augmented_features(paths: list[Path], resolution: int, device
             )
         print(f"Features cargadas del cache: {cache_path} {features.shape}")
         return features
-    
+
     print(f"Extrayendo features de {len(paths)} imagenes a {resolution}px ({BACKBONE_NAME})...")
     features = extract_augmented_features(paths, resolution, device, k, batch_size)
     np.save(cache_path, features)
+    del features #libera la copia en RAM: se relee mapeada a disco para no duplicar el array completo
+    features = np.load(cache_path, mmap_mode="r")
     print(f"Features guardadas en {cache_path} {features.shape}")
 
     return features
