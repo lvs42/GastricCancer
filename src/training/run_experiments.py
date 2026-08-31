@@ -11,6 +11,10 @@ import platform
 from datetime import datetime, timezone
 from pathlib import Path
 
+from src.features.extractors import BACKBONE_NAME, get_or_compute_features, get_or_compute_augmented_features, K_AUGMENTED_VIEWS
+
+from src.features.cbam_extractors import get_or_compute_cbam_features
+
 import numpy as np
 import torch
 
@@ -155,15 +159,25 @@ def _run_seed_worker(resolution, batch_size, experiment, k, seed, strict_counts,
             device = torch.device("cpu")
 
         paths, y = load_inventory(resolution, strict_counts=strict_counts)
-        features = get_or_compute_features(paths, resolution, device, batch_size)
 
-        aug_features = None
+        if experiment == "cbam":
+            train_idx, test_idx = split_train_test(y, seed=seed, test_size=TEST_SIZE)
 
-        if experiment == "augmentation":
-            aug_features = get_or_compute_augmented_features(paths, resolution, device, k, batch_size)
-        seed_result, flat = run_seed(features, y, seed, aug_features=aug_features)
+            features_seed = get_or_compute_cbam_features(paths, y, train_idx, resolution, device, seed=seed, batch_size=batch_size)
 
-        result_queue.put(("OK", seed_result, flat,))
+            seed_result, flat = run_seed(features_seed, y, seed)
+            result_queue.put(("OK", seed_result, flat,))
+
+        else:
+            features = get_or_compute_features(paths, resolution, device, batch_size)
+
+            aug_features = None
+
+            if experiment == "augmentation":
+                aug_features = get_or_compute_augmented_features(paths, resolution, device, k, batch_size)
+            seed_result, flat = run_seed(features, y, seed, aug_features=aug_features)
+
+            result_queue.put(("OK", seed_result, flat,))
 
     except Exception as error:
         error_message = (f"{type(error).__name__}: {error}")
@@ -292,8 +306,10 @@ def main() -> None:
     parser.add_argument("--resolution", type=int, required=True, choices=VALID_RESOLUTIONS)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--no-strict-counts", action="store_true")
-    parser.add_argument("--experiment",choices=["baseline","augmentation",],default="baseline")
+    parser.add_argument("--experiment", choices=["baseline", "augmentation", "cbam"], default="baseline")
     parser.add_argument("--k",type=int,default=K_AUGMENTED_VIEWS)
+
+    
 
     args = parser.parse_args()
 
@@ -384,7 +400,7 @@ def main() -> None:
 
         summary_name = "Baseline"
 
-    else:
+    elif args.experiment == "augmentation":
         track_name = "Augmentation"
 
         description = (
@@ -393,11 +409,21 @@ def main() -> None:
             "Las vistas aumentadas se usan únicamente en el entrenamiento de cada fold."
         )
 
-        output_filename = (
-            f"augmentation_{resolution}px_results.json"
-        )
+        output_filename = f"augmentation_{resolution}px_results.json"
 
         summary_name = "Augmentation"
+
+    else: 
+        track_name = "CBAM"
+
+        description = (
+            "Experimento con atencion CBAM: EfficientNetV2B0 congelado + CBAM "
+            "(entrenado por semilla sobre el 80% de train) + CatBoost."
+        )
+
+        output_filename = f"cbam_{resolution}px_results.json"
+
+        summary_name = "CBAM"
 
     output = {
         "track": track_name,
