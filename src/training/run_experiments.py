@@ -1,6 +1,8 @@
 """ python -m src.training.run_track_b --resolution 80
 python -m src.training.run_track_b --resolution 120
-python -m src.training.run_track_b --resolution 160 """
+python -m src.training.run_track_b --resolution 160 
+
+   python -m src.training.run_experiments --resolution 160 --experiment cbam"""
 
 from __future__ import annotations
 
