@@ -1,0 +1,2883 @@
+########## src/data/loaders.py ##########
+"""Carga del inventario de GasHisSDB y split estratificado sin fuga (Track B)."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+from sklearn.model_selection import train_test_split
+
+
+
+current_file = Path(__file__)
+
+absolute_file_path = current_file.resolve()
+
+project_root = absolute_file_path.parents[2]
+dataset_directory = project_root / "dataset"
+gashissdb_directory = dataset_directory / "GasHisSDB"
+
+DATASET_ROOT = gashissdb_directory / "GasHisSDB"
+
+
+# Unicas resoluciones validas. Son la MISMA fuente de WSIs recortada a distinta escala.
+VALID_RESOLUTIONS: tuple[int, ...] = (80, 120, 160)
+
+# asigna etiquetas binarias. Abnormal = clase positiva = 1. Normal = clase 0
+CLASS_TO_LABEL: dict[str, int] = {"Normal": 0, "Abnormal": 1}
+
+
+# Recuentos de comprobacion
+EXPECTED_COUNTS: dict[int, dict[str, int]] = {
+    80: {"Abnormal": 59151, "Normal": 87500},
+    120: {"Abnormal": 24801, "Normal": 40460},
+    160: {"Abnormal": 13124, "Normal": 20160},
+}
+
+
+def validate_resolution(resolution: int) -> int:
+    """Valida que la resolucion pedida sea una sola de las tres soportadas. si se combinasen parches del mismo
+      wsi podrían acabar tanto en el conjunto de etst como en el de train"""
+
+    if isinstance(resolution, (list, tuple, set)):
+        raise ValueError(
+            f"Solo se admite UNA resolucion por ejecucion, recibido: {resolution}. "
+            "Las tres resoluciones son la misma fuente de WSIs a distinta escala; "
+            "combinarlas invalidaria el experimento."
+        )
+    resolution = int(resolution)
+    if resolution not in VALID_RESOLUTIONS:
+        raise ValueError(f"Resolucion {resolution} invalida.")
+    return resolution
+
+
+def load_inventory(resolution: int, strict_counts: bool = True) -> tuple[list[Path], np.ndarray]:
+    """Lista todas las imagenes de una unica resolucion con su etiqueta binaria."""
+    resolution = validate_resolution(resolution)
+    res_dir = DATASET_ROOT / str(resolution) #construccion de la carpeta
+    if not res_dir.is_dir():
+        raise FileNotFoundError(f"No existe el directorio de la resolucion: {res_dir}")
+
+    paths: list[Path] = [] #rutas de las imágenes
+    labels: list[int] = [] #nombre de las imagenes
+    for class_name, label in sorted(CLASS_TO_LABEL.items()):
+        class_files = sorted((res_dir / class_name).glob("*.png")) #busca archivos png
+        if not class_files:
+            raise FileNotFoundError(f"Sin imagenes en {res_dir / class_name}")
+        paths.extend(class_files)
+        labels.extend([label] * len(class_files))
+
+    y = np.asarray(labels, dtype=np.int64)
+
+    # Comprobacion de integridad contra los recuentos verificados en el EDA.
+    if strict_counts and resolution in EXPECTED_COUNTS:
+        for class_name, expected in EXPECTED_COUNTS[resolution].items():
+            found = int((y == CLASS_TO_LABEL[class_name]).sum())
+            if found != expected:
+                raise ValueError(
+                    f"Inventario inconsistente en {resolution}px / {class_name}: "
+                    f"{found} imagenes, se esperaban {expected} (eda.ipynb seccion 2). "
+                    "El dataset puede estar incompleto."
+                )
+
+    #todas las rutas deben colgar de la MISMA resolucion.
+    assert all(p.parents[1].name == str(resolution) for p in paths), (
+        "Se han mezclado imagenes de mas de una resolucion en el mismo inventario."
+    )
+
+    return paths, y
+
+
+def split_train_test(
+    y: np.ndarray, seed: int, test_size: float = 0.2
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split estratificado fijo train/test."""
+    indices = np.arange(len(y))
+    train_idx, test_idx = train_test_split(
+        indices, #para divisiones de cuantos k folds en validación cruzada
+        test_size=test_size,
+        stratify=y,
+        random_state=seed,
+        shuffle=True,
+    )
+    return train_idx, test_idx
+
+########## src/data/preprocessing.py ##########
+from __future__ import annotations
+
+from pathlib import Path
+
+import cv2
+import numpy as np
+import yaml
+
+# tf_efficientnetv2_b0 se entreno a 224x224 (pero usa 192 para train??) https://huggingface.co/timm/tf_efficientnetv2_b0.in1k
+# Los parches de GasHisSDB son de 80/120/160 px -> se hace upsampling.
+INPUT_SIZE = 224
+
+current_file = Path(__file__)
+
+absolute_file_path = current_file.resolve()
+project_root = absolute_file_path.parents[2]
+
+configs_directory = project_root / "configs"
+
+CONFIG_PATH = configs_directory / "normalization_stats.yaml"
+
+
+
+def load_normalization_stats(resolution: int,) -> tuple[np.ndarray, np.ndarray]:
+    """Carga la media y desviación RGB de una resolución."""
+
+    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+        stats = yaml.safe_load(file)
+
+
+    if f"gashisdb_{resolution}" not in stats:
+        raise KeyError(
+            f"No hay estadísticas de normalización para la resolución "
+            f"{resolution} en {CONFIG_PATH}. "
+            f"Claves disponibles: {sorted(stats)}"
+        )
+
+    entry = stats[f"gashisdb_{resolution}"]
+
+    if int(entry["resolution"]) != int(resolution):
+        raise ValueError(
+            f"La sección 'gashisdb_{resolution}' declara "
+            f"resolution={entry['resolution']}, "
+            f"pero se ha solicitado la resolución {resolution}."
+        )
+
+
+    mean = np.asarray(entry["mean"], dtype=np.float32,)
+    std = np.asarray(entry["std"], dtype=np.float32,)
+
+    if mean.shape != (3,):
+        raise ValueError(
+            f"La media debe tener tres canales RGB. "
+            f"Forma recibida: {mean.shape}"
+        )
+
+    if std.shape != (3,):
+        raise ValueError(
+            f"La desviación debe tener tres canales RGB. "
+            f"Forma recibida: {std.shape}"
+        )
+
+    return mean, std
+
+
+def load_image_rgb(path: Path) -> np.ndarray:
+    """Lee un PNG y devuelve los pixeles en RGB."""
+    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR) # imread devuelve bgr NO rgb!!
+
+    if bgr is None:
+        raise FileNotFoundError(f"No se pudo leer la imagen: {path}")
+    
+    return cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB) #ordena correctamete los canales de colores para ser RGB
+
+
+def preprocess_batch(paths: list[Path], mean: np.ndarray, std: np.ndarray) -> np.ndarray:
+    """procesa un lote de imágenes, no procesa todo el dataset de golpe"""
+
+    batch = np.empty((len(paths), INPUT_SIZE, INPUT_SIZE, 3), dtype=np.float32)#reserva memoria para el lote en formato NHWC
+    #NHWC = tamaño de lote, altura, ancho, canales rgb =3
+
+    for i, path in enumerate(paths):
+        rgb = load_image_rgb(path)
+        # redimensiona imagenes a tamaño de tf_efficientnetv2_b0
+        resized = cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR) #calcula los nuevos píxeles interpolando los píxeles originales
+        #resized = cv2.resize(rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_CUBIC)
+        
+        #normaliza imagen (convierte pixles a [0,1])
+        batch[i] = resized.astype(np.float32) / 255.0
+
+    
+    batch = (batch - mean) / std
+    # Pythorch espera NCHW 
+    return np.ascontiguousarray(batch.transpose(0, 3, 1, 2)) #NHWC -> NCHW
+
+########## src/data/data_augmentation.py ##########
+"""
+Transformaciones de data augmentation sobre las imágenes de GasHisSDB.
+flips + rotaciones de 90/180/270
+rotar o reflejar la imagen no cambia su interpretacion clinica
+"""
+
+
+from pathlib import Path
+
+import numpy as np
+
+from src.data.preprocessing import load_image_rgb
+
+
+
+def flip_h(image):
+    flipped = np.fliplr(image)
+    return flipped
+
+def flip_v(image):
+    flipped = np.flipud(image)
+    return flipped
+
+def rotate(image, degree):
+    k=0
+    match degree:
+        case 90:
+            k = 1
+        case 180:
+            k = 2
+        case 270:
+            k = 3
+
+    rotated = np.rot90(image, k = k)
+
+    return rotated
+
+def flip_and_rotate(image, dir, degree):
+    k=0
+    match degree:
+        case 90:
+            k = 1
+        case 180:
+            k = 2
+        case 270:
+            k = 3
+
+    if dir == "v":
+        image = flip_v(image) 
+    elif dir == "h":
+        image = flip_h(image)
+
+    rotated = np.rot90(image, k = k)
+
+    return rotated
+
+def identity(image):
+    return image
+
+D4_TRANSFORMS = [
+    identity,
+    flip_v,
+    flip_h,
+    #rotate,
+    #flip_and_rotate,
+    lambda image: rotate(image, 90),
+    lambda image: rotate(image, 180),
+    lambda image: rotate(image, 270),
+    lambda image: flip_and_rotate(image, "h", 90),
+    lambda image: flip_and_rotate(image, "v", 90),
+]
+
+
+
+def sample_augmentations(rng: np.random.Generator, k: int) -> list:
+    """Elige k transformaciones D4 distintas (excluye la identidad, indice 0)."""
+
+    n = len(D4_TRANSFORMS ) - 1
+
+    indices = rng.choice(n, size = k, replace = False)
+    
+    selected_transforms = []
+
+    for index in indices:
+        real_index = index + 1
+
+        selected_transform = D4_TRANSFORMS[real_index]
+
+        selected_transforms.append(selected_transform)
+
+    return selected_transforms
+
+
+
+def augment_image(image: np.ndarray, transform) -> np.ndarray:
+    """Aplica una transformacion D4 a una imagen RGB ya cargada."""
+    aumentada = transform(image) #augmented_image = flip_h/rotate/...(image_rgb)
+
+    return aumentada
+
+
+
+def generate_augmented_views(path: Path, rng: np.random.Generator, k: int) -> list[np.ndarray]:
+    """Carga una imagen y devuelve k versiones aumentadas en RGB, sin resize
+    ni normalizar todavia (eso lo hace preprocess_batch despues, igual que
+    con las imagenes originales)."""
+    image = load_image_rgb(path)
+
+    transformations = sample_augmentations(rng, k)
+
+    list_aumentadas = []
+
+    for t in transformations:
+        transformed = augment_image(image, t)
+        list_aumentadas.append(transformed)
+    
+    return list_aumentadas
+
+
+
+def generate_augmented_batch(paths: list[Path], rng: np.random.Generator, k: int) -> np.ndarray:
+    """Devuelve un array con las vistas aumentadas de cada imagen del lote,
+    listo para pasar por preprocess_batch."""
+    batch = []
+    for path in paths:
+        #image = load_image_rgb(path)
+
+        versions = generate_augmented_views(path, rng, k)
+        batch.append(versions)
+
+    batch_array = np.stack(batch, axis = 0)
+
+    return batch_array
+########## src/features/extractors.py ##########
+"""crea EfficientNetV2B0 y la utiliza para convertir cada imagen en un vector de 1.280 características"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import numpy as np
+import timm
+import torch
+import cv2
+
+from src.data.preprocessing import load_normalization_stats, preprocess_batch, INPUT_SIZE
+from src.data.data_augmentation import generate_augmented_batch
+
+
+# se utilizan los pesos ImageNet originales de TensorFlow portados a PyTorch
+BACKBONE_NAME = "tf_efficientnetv2_b0" # modelo proviene de tensorflow
+
+
+current_file = Path(__file__)
+
+absolute_file_path = current_file.resolve()
+project_root = absolute_file_path.parents[2]
+
+results_directory = project_root / "results"
+
+FEATURES_DIR = results_directory / "features"
+
+
+def build_backbone(device: torch.device) -> torch.nn.Module:
+
+    model = timm.create_model(BACKBONE_NAME, pretrained=True, num_classes=0, global_pool="avg")
+    # se utilizan los pesos ImageNet originales de TensorFlow portados a PyTorch -> ya ha aprendido a dectectar: bordes, texturas,formas, colores y patrones complejos
+    #num_classes = 0 -> elimina la clasificación final (el modelo devolvia clasificacion entre gato, perro, etc)
+    # num classes + pooling hace que se devuelva vector de características
+
+    # se cogela para que no se modifiquen los pesos, es decir que no aprenda con GasHisSDB
+    for param in model.parameters():
+        param.requires_grad = False
+
+    return model.eval().to(device) #directamente modo evaluación, no se entrena la red neuronal
+# to device par escoger GPU o CPU
+
+#solo predecir tiene ventajas: no se necesitan calcular o guardar gradientes ni realizar la backpropagation
+
+
+#####
+
+
+@torch.inference_mode() #inference para marcar a hace predicciones
+def extract_features(paths: list[Path], resolution: int, device: torch.device, batch_size: int = 256,) -> np.ndarray:
+
+    """Recibe todas las rutas y devuelve todas las características
+    Carga las estadísticas de la resolución especificada en os parámetros.
+    Preprocesa las imágenes por lotes"""
+
+    mean, std = load_normalization_stats(resolution)
+    model = build_backbone(device)
+
+    chunks = []
+
+    for start in range(0, len(paths), batch_size):
+    
+        batch_paths = paths[start : start + batch_size]
+        batch = preprocess_batch(batch_paths, mean, std)
+        # conviertimos el array de numpy en un tensor de PyTorch
+        tensor = torch.from_numpy(batch).to(device, non_blocking=True)
+
+        #tensor.shape #(256, 3, 224, 224)
+
+        feats = model(tensor) #pasamos las imágenes por el modelo
+        #feats.shape #(256, 1280)
+
+        #volver a formato array numpy para futuro catboost
+        features = feats.float().cpu().numpy()
+        chunks.append(features)
+
+        done = min(start + batch_size, len(paths))
+        print(f"  features {done}/{len(paths)}", end="\r", flush=True)
+
+    print()
+
+    # Libera la VRAM cacheada por PyTorch -- si no, CatBoost (GPU) ve menos memoria
+    # libre de la real y puede quedarse sin memoria al usar depths mas altos.
+    del model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    return np.concatenate(chunks, axis=0) #devovlemos los lotes concatenados
+
+
+def get_or_compute_features(paths: list[Path], resolution: int, device: torch.device, batch_size: int = 256,) -> np.ndarray:
+    """Devuelve las features de una resolucion, reutilizando el cache para evitar repetir trabajo.
+    Las features solo se calculan una vez por resolución"""
+
+    FEATURES_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = FEATURES_DIR / f"{BACKBONE_NAME}_{resolution}px.npy"
+
+    if cache_path.exists(): #si ya existe el archivo
+        # mmap: no carga el array entero en RAM, el SO pagina bajo demanda y puede liberarlo si hace falta memoria
+        features = np.load(cache_path, mmap_mode="r") #Carga las características previamente calculadas
+
+        # El cache solo es valido si cubre exactamente el inventario actual.
+        if features.shape[0] != len(paths):
+            raise ValueError(
+                f"El cache {cache_path} tiene {features.shape[0]} filas pero el inventario "
+                f"de {resolution}px tiene {len(paths)} imagenes. Borra el cache y reextrae."
+            )
+        print(f"Features cargadas del cache: {cache_path} {features.shape}")
+        return features
+
+    print(f"Extrayendo features de {len(paths)} imagenes a {resolution}px ({BACKBONE_NAME})...")
+    features = extract_features(paths, resolution, device, batch_size)
+    np.save(cache_path, features)
+    del features #libera la copia en RAM: se relee mapeada a disco para no duplicar el array completo
+    features = np.load(cache_path, mmap_mode="r")
+    print(f"Features guardadas en {cache_path} {features.shape}")
+    return features
+
+
+
+
+
+
+
+
+
+
+
+
+############ DATA AUGMENTATION
+#extraccion de features aumentadas
+
+
+AUGMENTATION_SEED = 123   #cualquiera que no sea la misma seed de particiones
+
+K_AUGMENTED_VIEWS = 3
+
+#mover a processing.py(?)
+def _preprocess_augmented_array(image_rgb: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
+    """procesa una imagen hecha array"""
+    image = cv2.resize(image_rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+
+    image = image.astype(np.float32) / 255.0
+    image_norm = (image - mean) / std
+
+    
+    # HWC -> CHW    012 201
+    image = image_norm.transpose(2,0,1) #puede que no reorganizar en memoria
+
+    image = np.ascontiguousarray(image) #aseguramos que se puede convertir a tensor de pytorch
+    return image
+
+
+@torch.inference_mode()
+def extract_augmented_features(paths: list[Path], resolution: int, device: torch.device,
+                                k: int = K_AUGMENTED_VIEWS, batch_size: int = 256,) -> np.ndarray:
+    """ extract_features() pero para las vistas aumentadas
+    cambio: devuelve un array (N, k, 1280) (antes N, 1280)"""
+    mean, std = load_normalization_stats(resolution)
+    model = build_backbone(device)
+
+    rng = np.random.default_rng(AUGMENTATION_SEED)
+    chunks = []
+    
+    for start in range(0, len(paths), batch_size):#Recorre paths en bloques de batch_size
+        
+        batch_paths = paths[start : start + batch_size]
+        aug_batch = generate_augmented_batch(batch_paths, rng, k)
+
+        preprocessed_images = []
+
+        for views in aug_batch:
+            preprocessed_views = []
+
+            for view in views:
+                image_array = _preprocess_augmented_array(view, mean, std)
+
+                preprocessed_views.append(image_array)
+
+            preprocessed_images.append(preprocessed_views)
+
+        preprocessed_batch = np.stack(preprocessed_images, axis=0)
+
+        number_of_images = preprocessed_batch.shape[0]
+
+        number_of_views = preprocessed_batch.shape[1]
+        flattened_batch = preprocessed_batch.reshape(number_of_images * number_of_views, 3, INPUT_SIZE, INPUT_SIZE)
+
+        # conviertimos el array de numpy en un tensor de PyTorch
+        tensor = torch.from_numpy(flattened_batch).to(device, non_blocking=True)
+    
+        #tensor.shape
+    
+        feats = model(tensor) #pasamos las imágenes por el modelo
+        #feats.shape
+    
+        #volver a formato array numpy para futuro catboost
+        features = feats.float().cpu().numpy()
+        number_of_features = features.shape[1]
+
+        features = features.reshape(number_of_images, number_of_views, number_of_features)
+
+
+        chunks.append(features)
+    
+        done = min(start + batch_size, len(paths))
+        print(f"  features {done}/{len(paths)}", end="\r", flush=True)
+    
+    print()
+    
+        
+    del model
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
+    features = np.concatenate(chunks, axis=0)
+    
+    return features #devovlemos los lotes concatenados
+
+    
+
+
+def get_or_compute_augmented_features(paths: list[Path], resolution: int, device: torch.device, 
+                                      k: int = K_AUGMENTED_VIEWS, batch_size: int = 256,) -> np.ndarray:
+    """Devuelve las features de las vistas aumentadas.
+
+    Reutiliza el cache si ya existe y tiene la forma correcta (numero_imagenes, k, 1280)"""
+    FEATURES_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = FEATURES_DIR / f"{BACKBONE_NAME}_{resolution}px_aug{k}.npy"
+
+
+    shape = (len(paths), k, 1280)
+    
+    if cache_path.exists(): #si ya existe el archivo
+        # mmap: no carga el array entero en RAM, el SO pagina bajo demanda y puede liberarlo si hace falta memoria
+        features = np.load(cache_path, mmap_mode="r") #Carga las características previamente calculadas
+
+         # El cache solo es valido si cubre exactamente el inventario actual.
+        if features.shape != shape:
+            raise ValueError(
+                f"El cache {cache_path} tiene {features.shape[0]} filas pero el inventario "
+                f"de {resolution}px tiene {len(paths)} imagenes. Borra el cache y reextrae."
+            )
+        print(f"Features cargadas del cache: {cache_path} {features.shape}")
+        return features
+
+    print(f"Extrayendo features de {len(paths)} imagenes a {resolution}px ({BACKBONE_NAME})...")
+    features = extract_augmented_features(paths, resolution, device, k, batch_size)
+    np.save(cache_path, features)
+    del features #libera la copia en RAM: se relee mapeada a disco para no duplicar el array completo
+    features = np.load(cache_path, mmap_mode="r")
+    print(f"Features guardadas en {cache_path} {features.shape}")
+
+    return features
+
+########## src/features/cbam_extractors.py ##########
+"""
+extraccion de features con atencion
+
+El backbone congelado
+
+CBAM se entrena una vez para cada semilla utilizando train de esa semilla
+
+Tras entrenarse CBAM se congela y genera las features finales
+"""
+
+import copy
+from pathlib import Path
+
+import numpy as np
+import torch
+import torch.nn as nn
+
+import math
+
+from sklearn.model_selection import train_test_split
+from src.data.preprocessing import (load_normalization_stats, preprocess_batch)
+from src.features.extractors import (build_backbone, BACKBONE_NAME, FEATURES_DIR)
+
+from src.models.classifiers import compute_class_weights
+
+from src.models.cbam import CBAM
+
+
+
+
+
+NUM_CHANNELS = 1280
+INTERNAL_VAL_FRACTION = 0.1
+MAX_EPOCHS = 15
+
+PATIENCE = 3 #numero de epocas sin mejorar para ordenar el early stopping
+
+LEARNING_RATE = 1e-3
+
+
+
+def get_raw_feature_maps(backbone, batch_paths, mean, std, device):
+    """ Devuelve el mapa de caracteristicas del backbone antes del pooling """
+
+    batch = preprocess_batch(batch_paths, mean, std)
+
+    tensor = torch.from_numpy(batch) #  convertimos el arrar de numpy en un tensor de pytorch
+    tensor = tensor.to(device, non_blocking=True) # como siemrpe cpu o gpu
+
+#congeladooo
+    with torch.no_grad(): #backboen congelado -> no calcular gradientes -> toorch n ograd:
+
+        feature_maps = backbone.forward_features(tensor)
+
+
+    return feature_maps
+
+
+
+
+def train_cbam(paths_train, y_train, resolution, device, seed, batch_size=64):
+    """
+    Entrena CBAM utilizando solamente el train de una semilla
+
+    Cuenta con un conjunto de validacion -> para early stopping.
+    """
+
+
+  
+
+    (paths_fit, paths_val_interno, y_fit, y_val_interno) = train_test_split(
+                                                            paths_train,
+                                                            y_train,
+                                                            test_size = INTERNAL_VAL_FRACTION,
+                                                            random_state = seed,
+                                                            stratify = y_train
+                                                        )
+
+
+
+    mean, std = load_normalization_stats(resolution)
+
+
+    backbone = build_backbone(device)
+
+    cbam = CBAM(NUM_CHANNELS)
+
+
+    cbam = cbam.to(device, non_blocking=True)
+
+
+
+    head = nn.Linear(in_features = NUM_CHANNELS, out_features = 2) #1280 features de entrada y 2 posibles calses como respeusta abnormal y normal
+
+    head = head.to(device, non_blocking=True)
+
+    #Optimizacion
+    trainable_parameters = (list(cbam.parameters()) + list(head.parameters()))
+
+
+
+    #creamos el clasificador
+    optimizer = torch.optim.Adam(trainable_parameters, lr= LEARNING_RATE)
+
+
+
+
+    class_weights = compute_class_weights(y_fit)
+
+    weights_list = [class_weights[0], class_weights[1]]
+    weights_tensor = torch.tensor(weights_list, dtype = torch.float32, device = device)
+
+
+
+    crit = nn.CrossEntropyLoss(weight=weights_tensor)
+
+
+    
+
+    # Early stopping - menor perdida -> mejor modelo.
+    best_val_loss = math.inf
+
+    epochs_without_improvement = 0 #cantidad de epocas que han pasado sin haber encontrado mejora
+
+    best_cbam = [] #mejores pesos encontrados por cbam
+
+
+    #TRAIN
+
+    for epoch in range(MAX_EPOCHS):
+
+        cbam.train()
+        head.train()
+
+
+
+        for start in range(0, len(paths_fit), batch_size):
+
+            end = batch_size + start #cuando acaba cada lote
+
+
+            batch_paths = paths_fit[start:end]
+
+            batch_labels = y_fit[start:end]
+
+            # etiquetas a tensor (crossentropy las necesita enteras)
+            labels_tensor = torch.tensor(batch_labels,  dtype = torch.long,  device = device)
+
+
+
+            feature_map = get_raw_feature_maps(backbone, batch_paths, mean, std, device)
+
+            # Pasar el mapa por el modul ode atencion
+            attended = cbam(feature_map)
+
+            pooled = torch.nn.functional.adaptive_avg_pool2d(attended, 1) # (batch, 1280, H, W) -> (batch, 1280, 1, 1)
+
+            pooled = pooled.flatten(1) # -> (batch, 1280)
+
+
+
+            logits = head(pooled) # pasamso las features por head temporal
+
+
+            # Calcula la perdida comparando los pesos antes de convertirlso en probabilidad con la salida original
+            loss = crit(logits, labels_tensor)
+
+
+
+
+            optimizer.zero_grad() #eliminamos lso gradientes de la iteracion anterior
+
+            #calculamso los nuevos gradietnes
+            loss.backward() 
+
+
+            optimizer.step() #actualizamos los pesos
+
+
+
+        #### Validacion
+
+        cbam.eval()
+        head.eval()
+
+        # vamos a acumular la perdida total.
+        val_loss_sum = 0.0
+
+        val_samples = 0
+
+
+
+        with torch.no_grad(): #val sin gradientes
+
+
+            for start in range(0, len(paths_val_interno), batch_size):
+                end = batch_size + start
+
+
+                batch_paths = paths_val_interno[start:end]
+
+                batch_labels = y_val_interno[start:end]
+
+                # etiquetas a tensor (crossentropy las necesita enteras)
+                labels_tensor = torch.tensor(batch_labels,  dtype = torch.long,  device = device)
+
+
+
+                feature_map = get_raw_feature_maps(backbone, batch_paths, mean, std, device)
+
+                # Pasar el mapa por el modul ode atencion
+                attended = cbam(feature_map)
+
+                pooled = torch.nn.functional.adaptive_avg_pool2d(attended, 1) # (batch, 1280, H, W) -> (batch, 1280, 1, 1)
+
+                pooled = pooled.flatten(1) # -> (batch, 1280)
+
+
+                logits = head(pooled) # pasamso las features por head temporal
+
+
+                # Calcula la perdida comparando los pesos antes de convertirlso en probabilidad con la salida original
+                loss = crit(logits, labels_tensor)
+
+
+                #cantidad imagenes en e llote
+                current_batch_size = len(batch_labels)
+
+
+                # loss.item() = media
+                val_loss_sum += loss.item() * current_batch_size
+
+                val_samples += current_batch_size
+
+
+
+        val_loss =  val_loss_sum / val_samples
+
+
+        print(f"Epoch {epoch + 1}/{MAX_EPOCHS} - val_loss: {val_loss:.4f}")
+
+
+        # Comprobacion ealy stopping
+        if val_loss < best_val_loss: #si la nueva es mejor quedate con la nueva
+
+            best_val_loss = val_loss
+
+            best_cbam = copy.deepcopy(cbam.state_dict()) # hace falta deepcopy para copiar tmb los tensores
+
+
+            epochs_without_improvement = 0 #reini9cio del contador
+
+
+        else:  # si no ha mejorado +1 al contador
+            epochs_without_improvement += 1
+
+            if epochs_without_improvement >= PATIENCE: #detenemos el entrenamiento
+
+                print("Early stopping activado")
+
+                break
+
+
+    # recuperamos los pesos del mejor cbam
+    cbam.load_state_dict(best_cbam)
+
+    #ya no mas entrnear + congelamos sus parametros
+    cbam.eval()
+
+    for parameter in cbam.parameters():
+        parameter.requires_grad = False
+
+
+    return cbam
+
+
+
+#############
+# Extraeccion de features usando CBAM entrenado
+
+
+@torch.inference_mode()
+def extract_cbam_features(paths, resolution, device, backbone, cbam, batch_size=256):
+    """ Extrae las features finales utilizando """
+
+    mean, std = load_normalization_stats(resolution)
+
+    feature_chunks = []
+
+
+    for start in range(0, len(paths), batch_size):
+        end = batch_size + start #cuando acaba cada lote
+
+
+        batch_paths = paths[start:end]
+
+        batch = preprocess_batch(batch_paths, mean, std)
+
+
+        tensor = torch.from_numpy(batch)
+        tensor = tensor.to(device)
+
+
+        feature_map = backbone.forward_features(tensor)
+
+        # Pasar el mapa por el modul ode atencion
+        attended = cbam(feature_map)
+
+        pooled = torch.nn.functional.adaptive_avg_pool2d(attended, 1) # (batch, 1280, H, W) -> (batch, 1280, 1, 1)
+
+        pooled = pooled.flatten(1) # -> (batch, 1280)
+
+
+        pooled = pooled.cpu()
+
+        pooled_numpy = pooled.numpy()
+
+        feature_chunks.append(pooled_numpy)
+
+
+
+    # Unir lotes - buscamos (N, 1280) - tnemos varios 256, 1280
+    features = np.concatenate(feature_chunks, axis=0) 
+
+
+
+
+
+
+    del backbone
+    del cbam
+
+    if torch.cuda.is_available(): #si cuda esta disponible
+        torch.cuda.empty_cache() #vacia memoria cache
+
+
+    return features
+
+
+
+def get_or_compute_cbam_features(paths, y, train_idx, resolution, device, seed, batch_size=256):
+    cache_path = FEATURES_DIR / ( f"{BACKBONE_NAME}_{resolution}px_cbam_seed{seed}.npy")
+
+
+    if cache_path.exists():
+
+        cached_features = np.load(cache_path)
+
+        expected_shape = (len(paths), NUM_CHANNELS)
+
+
+        if cached_features.shape == expected_shape: #si en la cache existe ya guardaras una features con la forma correcta
+            print(f"Cache CBAM encontrado: {cache_path}")
+
+            return cached_features
+
+
+        print("El cache CBAM existe pero no tiene al forma correcta")
+
+
+
+    paths_train = []
+
+    for i in train_idx:
+        paths_train.append(paths[i]) 
+
+
+    y_train_local = y[train_idx]
+
+
+    backbone = build_backbone(device)
+
+
+    cbam_entrenado = train_cbam(paths_train, y_train_local, resolution, device, seed)
+
+    #generamos las features para todos lso conjuntos de datos (no solo train)
+    features = extract_cbam_features(paths, resolution, device, backbone, cbam_entrenado, batch_size)
+
+
+    #almacenamos
+    np.save(cache_path, features)
+
+
+    print(f"Features CBAM guardadas en: {cache_path}")
+
+
+    return features
+########## src/models/cbam.py ##########
+import torch
+import torch.nn as nn
+
+class ChannelAttention(nn.Module):
+    """ Decide para cada imagen como de importante es la informacion de cada canal"""
+
+    def __init__(self, num_channels, reduction_ratio=16):
+        super().__init__()
+
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)# Pooling de la media
+
+
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+        reduced_channels = int(num_channels / reduction_ratio)
+
+
+
+        self.mlp = nn.Sequential(
+            nn.Linear(num_channels, reduced_channels), #num_channels -> reduced_channels
+            nn.ReLU(),
+            nn.Linear(reduced_channels, num_channels) # volvemos a num_channels
+        )
+
+        # Normalizamos
+        self.sigmoid = nn.Sigmoid()
+
+
+    def forward(self, x):
+        """
+        x tiene forma:
+        (batch, C, H, W)
+
+        Devuelve:
+        (batch, C, 1, 1)
+        """
+
+        # Aplica el pooling de media sobre x.
+
+        avg_features = self.avg_pool(x)
+
+        avg_features = torch.flatten( avg_features, start_dim = 1)
+
+    
+        avg_attention = self.mlp(avg_features) # Pasa las caracteristicas por la mlp
+
+
+
+        max_features = self.max_pool(x)
+        max_features = torch.flatten( max_features, start_dim = 1)
+        max_attention = self.mlp(max_features)
+
+
+
+        # Suma la atencion obtenido por las dos opciones
+        attention = avg_attention + max_attention
+
+
+        attention = self.sigmoid(attention) #valores entre 0 y 1
+
+
+
+        # Recuperamos batch y numero de canales
+        batch_size = attention.shape[0]
+        num_channels = attention.shape[1]
+
+
+        attention = attention.view(batch_size, num_channels, 1, 1) #vovlem,so a (batch, C, 1, 1)
+        
+
+        return attention
+
+
+
+class SpatialAttention(nn.Module):
+    """ Atencion espacial será el encargado de decidir qué posiciones espaciales del mapa tiene las características más improtantes"""
+
+    def __init__(self, kernel_size=7):
+        super().__init__()
+
+        padding = kernel_size // 2
+
+
+        self.conv = nn.Conv2d(
+            in_channels = 2,
+            out_channels = 1,
+            kernel_size= kernel_size,
+            padding = padding
+        )
+
+
+        self.sigmoid = nn.Sigmoid()
+
+
+    def forward(self, x):
+        """
+        x tiene forma:
+        (batch, C, H, W)
+
+        Devuelve:
+        (batch, 1, H, W)
+        """
+
+
+        avg_map = torch.mean(x, dim = 1, keepdim = True)
+
+
+        max_result = torch.max(x,  dim = 1,  keepdim = True) #devuelve indices y values
+
+        max_map = max_result.values
+
+
+        combined = torch.cat((avg_map, max_map),  dim=1)
+
+        # la atencion son los dos mapas concatenados
+        attention = self.conv(combined)
+
+        attention = self.sigmoid(attention)
+
+
+        return attention
+
+
+
+class CBAM(nn.Module):
+    """ Modulo CBAM completo"""
+
+    def __init__(self,  num_channels,  reduction_ratio=16,  spatial_kernel_size=7):
+        super().__init__()
+
+
+        self.channel_attention = ChannelAttention( num_channels, reduction_ratio) #self se pasa automaticamente
+
+        self.spatial_attention = SpatialAttention(spatial_kernel_size)
+
+
+    def forward(self, x):
+        """
+        x:
+        (batch, C, H, W)
+
+        salida:
+        (batch, C, H, W)
+        """
+
+        channel_weights = self.channel_attention(x)
+
+
+        x_channel = x * channel_weights
+
+        spatial_weights = self.spatial_attention(x_channel)
+
+
+        x_final = x_channel * spatial_weights
+
+
+        return x_final
+
+
+"""
+if __name__ == "__main__":
+
+    modulo = CBAM(
+        num_channels=1280
+    )
+
+    x = torch.randn(
+        4,
+        1280,
+        7,
+        7
+    )
+
+    salida = modulo(x)
+
+    print("Forma entrada:")
+    print(x.shape)
+
+    print("Forma salida:")
+    print(salida.shape)
+
+    assert salida.shape == x.shape
+
+    assert not torch.equal(
+        salida,
+        x
+    )
+
+    print("CBAM funciona correctamente.")
+    """
+########## src/models/classifiers.py ##########
+"""Balanceo de datos, probar configuraciones de CatBoost y entrenar el modelo finla"""
+
+from __future__ import annotations
+
+import gc
+from itertools import product
+
+import numpy as np
+import torch
+from catboost import CatBoostClassifier
+from sklearn.metrics import balanced_accuracy_score
+from sklearn.model_selection import StratifiedKFold
+
+
+
+PARAM_GRID: dict[str, list] = {
+    "iterations": [300, 500, 700], #número de árboles que construye CatBoost
+    "learning_rate": [0.05, 0.1, 0.2],
+    "depth": [4, 6, 8],
+}
+
+PARAM_GRID_PRUEBA: dict[str, list] = {
+    "iterations": [300], #número de árboles que construye CatBoost
+    "learning_rate": [0.05],
+    "depth": [4, 6],
+}
+
+N_FOLDS = 5
+
+# el grid = 27 combinaciones de configuraciones x 5 folds x 5 semillas = 675 entrenamientos
+
+
+def compute_class_weights(y: np.ndarray) -> dict[int, float]:
+    """Calcula pesos para compensar el desbalance
+    Equivocarse en una imagen abnormal penaliza más que equivocarse en una normal"""
+
+    classes, counts = np.unique(y, return_counts=True)
+    weights = len(y) / (len(classes) * counts)
+    return {int(c): float(w) for c, w in zip(classes, weights)}
+
+######### 
+# Probar tmb balanceo de clases por oversampling
+#########
+
+def catboost_task_type() -> str:
+    """Usa GPU para CatBoost si hay una disponible -> más rápido"""
+    return "GPU" if torch.cuda.is_available() else "CPU"
+
+
+def build_classifier(params: dict, class_weights: dict[int, float], seed: int) -> CatBoostClassifier:
+    """Crea una instancia de CatBoost con unos hiperparametros y pesos de clase dados"""
+    return CatBoostClassifier(
+        #iterations=500,
+        #learning_rate=0.1,
+        #depth=6,
+        **params, #params = {"iterations": 500, "learning_rate": 0.1, "depth": 6,}
+        task_type=catboost_task_type(),
+        # CatBoost espera los pesos en orden de clase ascendente (0 = Normal y 1 = Abnormal).
+        class_weights=[class_weights[0], class_weights[1]],
+        loss_function="Logloss",
+        random_seed=seed,
+        verbose=False, #evita prints que hacen ir más lenta
+        allow_writing_files=False,
+    )
+
+
+def tune_hyperparameters(x_train: np.ndarray, y_train: np.ndarray, seed: int,) -> tuple[dict, dict]:
+    """Selecciona hiperparametros sobre train, sin evaluar co ntest"""
+
+    class_weights = compute_class_weights(y_train) #Calcula los pesos usando el conjunto de entrenamiento
+    skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=seed) # divide en 5 particiones para validación cruzada
+
+    folds = list(skf.split(x_train, y_train)) # 5 folds
+
+    grid = []
+
+    for iterations in [300, 500, 700]: #creamos las 27 combianciones de configuraciones
+        for learning_rate in [0.05, 0.1, 0.2]:
+            for depth in [4, 6, 8]:
+                params = {
+                    "iterations": iterations,
+                    "learning_rate": learning_rate,
+                    "depth": depth,
+                }
+
+                grid.append(params)
+     
+    results: list[dict] = []
+
+    for i, params in enumerate(grid, start=1): #evaluar cada configuracioens, recorremso las 27
+        fold_scores: list[float] = []
+        for train_fold, val_fold in folds:
+            model = build_classifier(params, class_weights, seed)
+            model.fit(x_train[train_fold], y_train[train_fold]) #entrena con 4 folds
+            y_pred = model.predict(x_train[val_fold]) #predice con 1 fold restante
+            
+            #metrica balanced accuracy porque por ahora el data set se encuentra desbaalnceado
+            fold_scores.append(balanced_accuracy_score(y_train[val_fold], y_pred))#guarda el accuracy balanceado resultante del fold restante
+
+
+        #almacenamos resultados de cada configuracion
+        entry = {
+            "params": params,
+            "cv_balanced_accuracy_mean": float(np.mean(fold_scores)),
+            "cv_balanced_accuracy_std": float(np.std(fold_scores)),
+            "cv_fold_scores": [float(s) for s in fold_scores],
+        }
+
+        
+        results.append(entry)
+        print(
+            f"  [{i}/{len(grid)}] {params} -> "
+            f"CV balanced acc {entry['cv_balanced_accuracy_mean']:.4f} "
+            f"± {entry['cv_balanced_accuracy_std']:.4f}"
+        )
+
+    best = max(results, key=lambda r: r["cv_balanced_accuracy_mean"]) #mejor accuracy medio
+    cv_info = {
+        "n_folds": N_FOLDS,
+        "selection_metric": "balanced_accuracy",
+        "n_configurations": len(grid),
+        "best_params": best["params"],
+        "best_cv_balanced_accuracy_mean": best["cv_balanced_accuracy_mean"],
+        "best_cv_balanced_accuracy_std": best["cv_balanced_accuracy_std"],
+        "best_cv_fold_scores": best["cv_fold_scores"],
+        "all_results": results,
+    }
+    return best["params"], cv_info
+
+
+def fit_final_model(x_train: np.ndarray, y_train: np.ndarray, params: dict, seed: int,) -> CatBoostClassifier:
+    """Una vez elegidos los mejores parámetros reentrena el modelo final utilizando todo el 80% de train"""
+    class_weights = compute_class_weights(y_train)
+
+    model = build_classifier(params, class_weights, seed)
+    model.fit(x_train, y_train)
+    
+    return model
+
+
+
+
+
+
+
+############ DATA AUGMENTATION
+# las vistas aumentadas SOLO al lado de entrenamiento de cada fold
+
+
+def tune_hyperparameters_augmentation( x_train: np.ndarray, y_train: np.ndarray,aug_features_train: np.ndarray,  seed: int,) -> tuple[dict, dict]:
+    """el lado FIT se amplia con las vistas aumentadas de las imagenes de ese fold
+    de fit (val fold usa solo originales"""
+
+    #class_weights = compute_class_weights(y_train) #Calcula los pesos usando el conjunto de entrenamiento
+    skf = StratifiedKFold(n_splits=N_FOLDS, shuffle=True, random_state=seed) # divide en 5 particiones para validación cruzada
+
+    folds = list(skf.split(x_train, y_train)) # 5 folds
+
+    grid = []
+
+    for iterations in [300, 500, 700]: #  
+        for learning_rate in [0.05, 0.1, 0.2]: #
+            for depth in [4, 6, 8]: #
+                params = {
+                    "iterations": iterations,
+                    "learning_rate": learning_rate,
+                    "depth": depth,
+                }
+
+                grid.append(params)
+
+
+    results = []
+
+    k = aug_features_train.shape[1]
+    number_of_features = aug_features_train.shape[2]
+
+    for i, params in enumerate(grid, start=1): #evaluar cada configuracioens, recorremso las 27
+        fold_scores: list[float] = []
+        for train_fold, val_fold in folds:
+
+
+            normal = x_train[train_fold]
+            augmented = aug_features_train[train_fold]
+            augmented = augmented.reshape(-1, number_of_features)
+            
+            x_fit = np.concatenate([normal, augmented,],axis=0)
+
+            labels = y_train[train_fold]
+            augmented_labels = np.repeat(labels, k)
+
+            y_fit = np.concatenate([labels, augmented_labels,],axis=0)
+
+
+
+            x_validation = x_train[val_fold]
+            y_validation = y_train[val_fold]
+
+            class_weights = compute_class_weights(y_fit)
+
+            model = build_classifier(params, class_weights, seed)
+            model.fit(x_fit, y_fit)
+            y_pred = model.predict(x_train[val_fold]) #predice con 1 fold restante
+
+            #metrica balanced accuracy porque por ahora el data set se encuentra desbaalnceado
+            fold_scores.append(balanced_accuracy_score(y_train[val_fold], y_pred))#guarda el accuracy balanceado resultante del fold restante
+
+            # x_fit/augmented son ~4x el tamano del fold: liberar ya, si no el pico de memoria
+            # se acumula a lo largo de las 135 iteraciones (27 configs x 5 folds) del grid search.
+            del normal, augmented, x_fit, labels, augmented_labels, y_fit, model, y_pred
+            gc.collect()
+
+        #almacenamos resultados de cada configuracion
+        entry = {
+            "params": params,
+            "cv_balanced_accuracy_mean": float(np.mean(fold_scores)),
+            "cv_balanced_accuracy_std": float(np.std(fold_scores)),
+            "cv_fold_scores": [float(s) for s in fold_scores],
+        }
+
+
+        results.append(entry)
+        print(
+            f"  [{i}/{len(grid)}] {params} -> "
+            f"CV balanced acc {entry['cv_balanced_accuracy_mean']:.4f} "
+            f"± {entry['cv_balanced_accuracy_std']:.4f}"
+        )
+
+    best = max(results, key=lambda r: r["cv_balanced_accuracy_mean"]) #mejor accuracy medio
+    cv_info = {
+        "n_folds": N_FOLDS,
+        "selection_metric": "balanced_accuracy",
+        "n_configurations": len(grid),
+        "best_params": best["params"],
+        "best_cv_balanced_accuracy_mean": best["cv_balanced_accuracy_mean"],
+        "best_cv_balanced_accuracy_std": best["cv_balanced_accuracy_std"],
+        "best_cv_fold_scores": best["cv_fold_scores"],
+        "all_results": results,
+    }
+    return best["params"], cv_info
+
+
+def fit_final_model_augmentation(x_train: np.ndarray, y_train: np.ndarray, aug_features_train: np.ndarray, params: dict, seed: int,) -> CatBoostClassifier:
+    """entrena sobre el 80% completo + sus vistas aumentadas"""
+    k = aug_features_train.shape[1]
+    number_of_features = aug_features_train.shape[2]
+
+    augmented = aug_features_train.reshape(-1, number_of_features)
+    augmented_labels = np.repeat(y_train, k)
+
+    x_fit = np.concatenate([x_train, augmented], axis=0)
+    y_fit = np.concatenate([y_train, augmented_labels], axis=0)
+
+
+    class_weights = compute_class_weights(y_fit)
+
+    model = build_classifier(params, class_weights, seed)
+    #print(x_fit.shape)
+    model.fit(x_fit, y_fit)
+
+    del x_fit, y_fit, augmented, augmented_labels
+    gc.collect()
+
+    return model
+
+########## src/evaluation/metrics.py ##########
+"""calculo de métricas, la matriz de confusión, intervalos de confianza y resultados medios 
+entre semillas de la clasificación binaria """
+
+from __future__ import annotations
+
+import numpy as np
+from sklearn.metrics import (
+    accuracy_score,
+    balanced_accuracy_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+
+POS_LABEL = 1
+
+N_BOOTSTRAP = 1000
+
+
+def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray, y_score: np.ndarray) -> dict:
+    """Calcula el bloque completo de metricas de test"""
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+
+    return {
+        #porcentaje total de aciertos
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        
+        #promedia el rendimiento entre ambas clases (mejor cuando desbalanceo)
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
+
+        # De todas las imágenes que el modelo clasificó como Abnormal, cuantas eran realmente Abnormal?
+        "precision_abnormal": float(precision_score(y_true, y_pred, pos_label=POS_LABEL, zero_division=0)),
+        
+        #De todas las imágenes realmente Abnormal, cuantas detectó el modelo?
+        "recall_abnormal": float(recall_score(y_true, y_pred, pos_label=POS_LABEL, zero_division=0)),
+        
+        #  combina presición y recall. alta solo cuando ambas son buenas
+        "f1_abnormal": float(f1_score(y_true, y_pred, pos_label=POS_LABEL, zero_division=0)),
+
+        # promedia ambas clases con el mismo peso, sin que la mayoritaria domine.
+        "precision_macro": float(precision_score(y_true, y_pred, average="macro", zero_division=0)),
+        "recall_macro": float(recall_score(y_true, y_pred, average="macro", zero_division=0)),
+        "f1_macro": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
+
+        # AUC probabilidad
+        "auc_roc": float(roc_auc_score(y_true, y_score)),
+
+        # De todas las imágenes realmente normales, cuantas identificó correctamente como normales?
+        "specificity": float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0,
+        "confusion_matrix": {
+            "tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp),
+            "labels": ["Normal(0)", "Abnormal(1)"],
+        },
+    }
+
+
+def bootstrap_ci(y_true: np.ndarray, y_pred: np.ndarray, y_score: np.ndarray, seed: int, n_resamples: int = N_BOOTSTRAP, alpha: float = 0.05,) -> dict:
+    """Intervalos de confianza del 95%
+    Boostrap repetido 100 veces con reemplazo
+    (no vuevlve a predecir, reemeustrea las predicciones ya obtendias)"""
+
+    rng = np.random.default_rng(seed)
+    n = len(y_true)
+
+    metrics: dict[str, list[float]] = {
+        "accuracy": [], "balanced_accuracy": [], "f1_abnormal": [], "auc_roc": [],
+    }
+
+    for _ in range(n_resamples):
+        idx = rng.integers(0, n, size=n)
+        yt = y_true[idx]
+
+        # Si solo uan clase hace indefinidos AUC y balanced accuracy.
+        if len(np.unique(yt)) < 2:
+            continue
+
+        yp, ys = y_pred[idx], y_score[idx]
+
+
+        metrics["accuracy"].append(accuracy_score(yt, yp))
+        metrics["balanced_accuracy"].append(balanced_accuracy_score(yt, yp))
+        metrics["f1_abnormal"].append(f1_score(yt, yp, pos_label=POS_LABEL, zero_division=0))
+        metrics["auc_roc"].append(roc_auc_score(yt, ys))
+
+    #percentiles 2.5 abajo 97.5 arriba para un itnerval ode 95%
+    lo_q = 100 * (alpha / 2)
+    hi_q = 100 * (1 - alpha / 2)
+
+    confidence_intervals = {}
+
+    for name, vals in metrics.items():
+        lower_percentile = np.percentile(vals, lo_q)
+        upper_percentile = np.percentile(vals, hi_q)
+
+        lower_limit = float(lower_percentile)
+        upper_limit = float(upper_percentile)
+
+        number_of_valid_resamples = len(vals)
+
+        metric_confidence_interval = {"ci95_low": lower_limit,  "ci95_high": upper_limit, "n_valid_resamples": number_of_valid_resamples}
+
+        confidence_intervals[name] = metric_confidence_interval
+
+
+    return confidence_intervals
+
+
+def aggregate_across_seeds(per_seed: list[dict]) -> dict:
+    """Recibir resultados de las semillas y caclula media std y values"""
+
+    scalar_keys = []
+    first_seed_results = per_seed[0]
+
+    for key, value in first_seed_results.items():
+        is_integer = isinstance(value, int)
+        is_float = isinstance(value, float)
+        is_scalar = (is_integer or is_float)
+
+        if is_scalar:
+            scalar_keys.append(key)
+
+
+    summary = {}
+
+    for key in scalar_keys: #para cada metrica calula mean std y value
+        key_values = []
+
+        for run in per_seed:
+            value = run[key]
+
+            float_value = float(value)
+            key_values.append(float_value)
+
+
+        mean_value = np.mean(key_values)
+        mean_value = float(mean_value)
+
+        standard_deviation = np.std(key_values)
+        standard_deviation = float(standard_deviation)
+
+        key_summary = {
+            "mean": mean_value,
+            "std": standard_deviation,
+            "values": key_values
+        }
+
+        summary[key] = key_summary
+
+    return summary
+
+########## src/training/run_experiments.py ##########
+""" python -m src.training.run_track_b --resolution 80
+python -m src.training.run_track_b --resolution 120
+python -m src.training.run_track_b --resolution 160 
+
+   python -m src.training.run_experiments --resolution 160 --experiment cbam"""
+
+from __future__ import annotations
+
+import argparse
+import gc
+import json
+import platform
+from datetime import datetime, timezone
+from pathlib import Path
+
+from src.features.extractors import BACKBONE_NAME, get_or_compute_features, get_or_compute_augmented_features, K_AUGMENTED_VIEWS
+
+from src.features.cbam_extractors import get_or_compute_cbam_features
+
+import numpy as np
+import torch
+
+import multiprocessing
+import traceback
+from queue import Empty
+
+import time
+
+
+def _current_rss_gb() -> float:
+    """RAM residente actual del proceso (para ver si se acumula memoria entre semillas)."""
+    with open("/proc/self/status") as fh:
+        for line in fh:
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1]) / (1024 ** 2)  # kB -> GB
+    return float("nan")
+
+from src.data.loaders import (
+    VALID_RESOLUTIONS,
+    load_inventory,
+    split_train_test,
+    validate_resolution,
+)
+from src.evaluation.metrics import aggregate_across_seeds, bootstrap_ci, compute_metrics
+from src.features.extractors import BACKBONE_NAME, get_or_compute_features, get_or_compute_augmented_features, K_AUGMENTED_VIEWS
+from src.models.classifiers import PARAM_GRID, fit_final_model, tune_hyperparameters, fit_final_model_augmentation, tune_hyperparameters_augmentation
+
+# Cada semilla generará su propio split train/test
+SEEDS: tuple[int, ...] = (42, 43, 44, 45, 46)
+
+TEST_SIZE = 0.2 #20%
+SEED_TIMEOUT_SECONDS = 6 * 60 * 60 #margen de seis horas por semilla
+
+
+current_file = Path(__file__)
+
+absolute_file_path = current_file.resolve()
+project_root = absolute_file_path.parents[2]
+
+RESULTS_DIR = project_root / "results"
+
+
+def run_seed(features: np.ndarray, y: np.ndarray, seed: int, aug_features = None) -> tuple[dict, dict]:
+    """Un experimento completo para una semilla"""
+
+    print(f"\n{'=' * 70}\nSEMILLA {seed}\n{'=' * 70}")
+    print(f"RAM residente al empezar la semilla: {_current_rss_gb():.2f} GB")
+
+    # separar train y test
+    train_idx, test_idx = split_train_test(y, seed=seed, test_size=TEST_SIZE)
+    x_train = features[train_idx]
+    y_train = y[train_idx]
+
+    x_test = features[test_idx]
+    y_test = y[test_idx]
+
+    print(
+        f"Train: {len(y_train)} (Abnormal {int(y_train.sum())}) | "
+        f"Test: {len(y_test)} (Abnormal {int(y_test.sum())})"
+    )
+
+    if aug_features is None:
+    
+        print(f"\nTuning por CV (k=5) sobre el 80% de train...")
+        #busqueda de los mejores hiperparámetros (solo sobre train(que dentro lleva el conjunto de validación))
+        best_params, cv_info = tune_hyperparameters(x_train, y_train, seed=seed)
+
+        print(
+            f"\nMejores hiperparametros: {best_params}\n"
+            f"CV balanced accuracy: {cv_info['best_cv_balanced_accuracy_mean']:.4f} "
+            f"± {cv_info['best_cv_balanced_accuracy_std']:.4f}"
+        )
+
+
+        print("\nReentrenando modelo final sobre el 80% completo...")
+        # Entrenameinto final del mdoelo con los mejores hiperparámetros encontrados + todo el conjunto de train
+        model = fit_final_model(x_train, y_train, best_params, seed=seed)
+
+    else:
+        aug_features_train = aug_features[train_idx]
+        print(f"\nTuning por CV (k=5) + daat AUGMENTATION sobre el 80% de train...")
+
+        best_params, cv_info = tune_hyperparameters_augmentation(x_train, y_train,aug_features_train, seed=seed)
+
+        print(
+            f"\nMejores hiperparametros: {best_params}\n"
+            f"CV balanced accuracy: {cv_info['best_cv_balanced_accuracy_mean']:.4f} "
+            f"± {cv_info['best_cv_balanced_accuracy_std']:.4f}"
+        )
+
+
+        print("\nReentrenando modelo final sobre el 80% completo + vistas aumentadas")
+        model = fit_final_model_augmentation(x_train, y_train, aug_features_train, best_params, seed=seed)
+
+    #y_pred = model.predict(x_test).astype(np.int64).ravel()
+    y_pred = model.predict(x_test).astype(np.int64) # devuelve clase -> convertir a int -> (N,1 a N,0)
+    #print("Forma original:", y_pred.shape)
+    y_score = model.predict_proba(x_test)[:, 1] #devuelve la probabilidad de pertenecer a cada clase (caso binario, solo hace falta saebr una)
+
+    # gurdamso todos los resultados
+    metrics = compute_metrics(y_test, y_pred, y_score)
+    metrics_ci = bootstrap_ci(y_test, y_pred, y_score, seed=seed)
+
+    print(
+        f"TEST -> accuracy {metrics['accuracy']:.4f} | "
+        f"balanced acc {metrics['balanced_accuracy']:.4f} | "
+        f"F1(Abnormal) {metrics['f1_abnormal']:.4f} | AUC {metrics['auc_roc']:.4f}"
+    )
+
+    seed_result = {
+        "seed": seed,
+        "n_train": int(len(y_train)),
+        "n_test": int(len(y_test)),
+        "best_params": best_params,
+        "cv": cv_info,
+        "test_metrics": metrics,
+        "test_metrics_bootstrap_ci95": metrics_ci,
+    }
+    # Solo los escalares se agregan entre semillas (la matriz de confusion no).
+    flat = {k: v for k, v in metrics.items() if isinstance(v, (int, float))}
+
+    # liberar explicitamente antes de pasar a la siguiente semilla: CatBoost en GPU no siempre
+    # libera sus buffers internos solo por refcounting entre llamadas sucesivas a .fit()
+    del x_train, y_train, x_test, y_test, model, y_pred, y_score
+    if aug_features is not None:
+        del aug_features_train
+    gc.collect()
+    print(f"RAM residente al terminar la semilla: {_current_rss_gb():.2f} GB")
+
+    return seed_result, flat
+
+
+
+def _run_seed_worker(resolution, batch_size, experiment, k, seed, strict_counts, result_queue):
+    """Ejecuta una semilla completa como un proceso independiente"""
+
+    try:
+        if torch.cuda.is_available():
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+
+        paths, y = load_inventory(resolution, strict_counts=strict_counts)
+
+        if experiment == "cbam":
+            train_idx, test_idx = split_train_test(y, seed=seed, test_size=TEST_SIZE)
+
+            features_seed = get_or_compute_cbam_features(paths, y, train_idx, resolution, device, seed=seed, batch_size=batch_size)
+
+            seed_result, flat = run_seed(features_seed, y, seed)
+            result_queue.put(("OK", seed_result, flat,))
+
+        else:
+            features = get_or_compute_features(paths, resolution, device, batch_size)
+
+            aug_features = None
+
+            if experiment == "augmentation":
+                aug_features = get_or_compute_augmented_features(paths, resolution, device, k, batch_size)
+            seed_result, flat = run_seed(features, y, seed, aug_features=aug_features)
+
+            result_queue.put(("OK", seed_result, flat,))
+
+    except Exception as error:
+        error_message = (f"{type(error).__name__}: {error}")
+        error_traceback = traceback.format_exc()
+
+        result_queue.put(("ERROR", error_message, error_traceback,))
+
+
+def run_seeds_in_separate_processes(resolution, batch_size, experiment, k, strict_counts):
+    """Ejecuta cada semilla en un proceso independiente"""
+
+    context = multiprocessing.get_context("spawn")
+
+
+    per_seed_results = []
+    per_seed_flat = []
+
+    for seed in SEEDS:
+        print()
+        print("=" * 70)
+        print(f"CREANDO PROCESO PARA LA SEMILLA {seed}")
+        print("=" * 70)
+
+        result_queue = context.Queue()
+
+        process = context.Process(target=_run_seed_worker, args=(
+                                                                    resolution,
+                                                                    batch_size,
+                                                                    experiment,
+                                                                    k,
+                                                                    seed,
+                                                                    strict_counts,
+                                                                    result_queue,
+                                                                ),
+        )
+
+        process.start()
+
+        start_time = time.monotonic()
+        message = None
+
+        while message is None:
+
+            try:
+                message = result_queue.get(timeout=5)
+
+            except Empty:
+                elapsed_time = (time.monotonic() - start_time)
+
+                if not process.is_alive():
+                    process.join()
+
+                    exit_code = process.exitcode
+
+                    result_queue.close()
+                    result_queue.join_thread()
+                    process.close()
+
+                    raise RuntimeError(
+                        f"La semilla {seed} terminó sin "
+                        f"devolver resultados. "
+                        f"Exitcode: {exit_code}. "
+                        f"Puede haber sido terminada "
+                        f"por falta de memoria."
+                    )
+
+                if elapsed_time > SEED_TIMEOUT_SECONDS:
+                    process.terminate()
+                    process.join()
+
+                    result_queue.close()
+                    result_queue.join_thread()
+                    process.close()
+
+                    raise RuntimeError(f"La semilla número {seed} superó el límite de segundos especificado")
+
+        process.join()
+
+        exit_code = process.exitcode
+
+        result_queue.close()
+        result_queue.join_thread()
+        process.close()
+
+        status = message[0]
+
+        if status == "ERROR":
+            error_message = message[1]
+            error_traceback = message[2]
+
+            raise RuntimeError(
+                f"La semilla número {seed} produjo un error.\n"
+                f"Exitcode: {exit_code}\n"
+                f"{error_message}\n\n"
+                f"{error_traceback}" #que pasooo
+            )
+
+        if status != "OK":
+            raise RuntimeError(f"Estado desconocido recibido para la semilla {seed}: {status}")
+
+
+        seed_result = message[1]
+        flat = message[2]
+
+        per_seed_results.append(seed_result)
+        per_seed_flat.append(flat)
+
+        print(
+            f"\nProceso de la semilla {seed} finalizado. "
+            f"MEMORIA LIBERADA"
+        )
+
+    return per_seed_results, per_seed_flat
+
+
+
+##############################################################################
+
+###### MAIN #########################################################
+
+##############################################################################
+
+def main() -> None:
+    parser = argparse.ArgumentParser() #permite recibir parámetros por terminal
+
+    parser.add_argument("--resolution", type=int, required=True, choices=VALID_RESOLUTIONS)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--no-strict-counts", action="store_true")
+    parser.add_argument("--experiment", choices=["baseline", "augmentation", "cbam"], default="baseline")
+    parser.add_argument("--k",type=int,default=K_AUGMENTED_VIEWS)
+
+    
+
+    args = parser.parse_args()
+
+
+    resolution = validate_resolution(args.resolution)
+
+
+
+     
+    if torch.cuda.is_available(): #usa gpu si se puede, sino cpu
+        device = torch.device("cuda")
+    else:
+        device = torch.device("cpu")
+
+
+    # Mostrar información del experimento.
+    separator = "=" * 70
+
+    print(separator)
+    print(f"Resolución: {resolution}px")
+    print(f"Dispositivo: {device}")
+    print(separator)
+    
+
+    #  Inventario
+    paths, y = load_inventory(resolution, strict_counts=not args.no_strict_counts)
+
+    n_abn  = int((y == 1).sum())
+    n_nor = int((y == 0).sum())
+
+    print(f"Inventario {resolution}px: {len(paths)} imagenes ")
+    print(f"Abnormal: {n_abn} ")
+    print(f"Normal: {n_nor}")
+    print()
+
+    # si existe cache la carga, sino ejecutar tf_efficientnetv2_b0 para crearlo
+    #features = get_or_compute_features(paths, resolution, device, batch_size=args.batch_size)
+
+    strict_counts = not args.no_strict_counts
+    per_seed_results, per_seed_flat = (
+        run_seeds_in_separate_processes(
+            resolution=resolution,
+            batch_size=args.batch_size,
+            experiment=args.experiment,
+            k=args.k,
+            strict_counts=strict_counts
+        )
+    )
+
+    
+    aggregated = aggregate_across_seeds(
+        per_seed_flat
+    )
+
+    """
+    aug_features = None
+    if args.experiment == "augmentation":
+        aug_features = get_or_compute_augmented_features(
+            paths, resolution, device, k=args.k, batch_size=args.batch_size
+        )
+
+    # Listas para guardar los resultados de todas las semillas.
+    per_seed_results = []
+    per_seed_flat = []
+
+    # repetimos el experimento completo por cada semilla
+    for seed in SEEDS:
+        result, flat = run_seed(features, y, seed, aug_features=aug_features)
+        per_seed_results.append(result)
+        per_seed_flat.append(flat)
+
+    aggregated = aggregate_across_seeds(per_seed_flat)
+    """
+
+    ############
+    #RESULTADOS
+    if args.experiment == "baseline":
+        track_name = "Baseline"
+
+        description = (
+            "Baseline: "
+            "EfficientNetV2B0 + CatBoost."
+        )
+
+        output_filename = (
+            f"baseline_{resolution}px_results.json"
+        )
+
+        summary_name = "Baseline"
+
+    elif args.experiment == "augmentation":
+        track_name = "Augmentation"
+
+        description = (
+            "Experimento con data augmentation: "
+            "EfficientNetV2B0 congelado + CatBoost. "
+            "Las vistas aumentadas se usan únicamente en el entrenamiento de cada fold."
+        )
+
+        output_filename = f"augmentation_{resolution}px_results.json"
+
+        summary_name = "Augmentation"
+
+    else: 
+        track_name = "CBAM"
+
+        description = (
+            "Experimento con atencion CBAM: EfficientNetV2B0 congelado + CBAM "
+            "(entrenado por semilla sobre el 80% de train) + CatBoost."
+        )
+
+        output_filename = f"cbam_{resolution}px_results.json"
+
+        summary_name = "CBAM"
+
+    output = {
+        "track": track_name,
+        "description": description,
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "config": {
+            "experiment": args.experiment,
+            "resolution_px": resolution,
+            "backbone": BACKBONE_NAME,
+            "backbone_frozen": True,
+            "pooling": "global_average_pooling",
+            "classifier": "CatBoost",
+            "input_size_px": 224,
+            "color_space": "RGB (cv2 BGR -> RGB)",
+            "normalization": f"configs/normalization_stats.yaml :: gashisdb_{resolution}",
+            "class_weights": "frecuencia inversa (sin submuestreo)",
+            "test_size": TEST_SIZE,
+            "cv_folds": 5,
+            "seeds": list(SEEDS),
+            "param_grid": PARAM_GRID,
+            "n_images": int(len(y)),
+            "n_abnormal": n_abn,
+            "n_normal": n_nor,
+            "augmentation_enabled": (args.experiment == "augmentation"),
+            "augmentation_views_per_image": (
+                args.k
+                if args.experiment == "augmentation"
+                else 0
+            ),
+        },
+        "environment": {
+            "python": platform.python_version(),
+            "torch": torch.__version__,
+            "device": str(device),
+        },
+        "aggregated_across_seeds": aggregated,
+        "per_seed": per_seed_results,
+    }
+
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = (RESULTS_DIR / output_filename)
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(output, fh, indent=2, ensure_ascii=False)
+
+    print(f"\n{'=' * 70}\n RESUMEN — {summary_name} @ {resolution}px ({len(SEEDS)} semillas)\n {'=' * 70}")
+    
+    for name in ["accuracy", "balanced_accuracy", "precision_abnormal", "recall_abnormal",
+                 "f1_abnormal", "f1_macro", "auc_roc", "specificity"]:
+        stat = aggregated[name]
+        print(f"  {name:22s} {stat['mean']:.4f} ± {stat['std']:.4f}")
+    print(f"\nHiperparametros por semilla:")
+    for r in per_seed_results:
+        print(f"  seed {r['seed']}: {r['best_params']}")
+    print(f"\nResultados guardados en: {out_path}")
+
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+    main()
+
+########## src/training/run_validacioncruzada.py ##########
+"""
+Entrena el modelo (backbone congelado + CatBoost) SOLO con datos de UNA
+resolucion, y lo evalua directamente sobre las imagenes de OTRA resolucion,
+sin reentrenar nada para la resolucion de evaluacion.
+
+Ejemplo:
+
+    entrenar con 80px
+            |
+            v
+        CatBoost
+            |
+            v
+    evaluar con 120px
+
+Esto permite comprobar si lo aprendido a una escala de parche
+se mantiene cuando cambia la resolucion.
+"""
+
+import argparse
+import json
+
+from itertools import permutations
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from src.data.loaders import ( VALID_RESOLUTIONS,load_inventory,split_train_test)
+from src.evaluation.metrics import ( aggregate_across_seeds,compute_metrics)
+from src.features.extractors import get_or_compute_features
+from src.models.classifiers import fit_final_model
+
+
+SEEDS = ( 42, 43, 44, 45, 46)
+TEST_SIZE = 0.2
+
+
+current_file = Path(__file__)
+project_root = current_file.resolve().parents[2]
+
+RESULTS_DIR = project_root / "results"
+
+
+def load_best_params_per_seed(train_resolution):
+    """ Carga los hiperparametros que ya fueron seleccionados durante el baseline para una resolucion """
+
+    filename = ( f"baseline_{train_resolution}px_results.json")
+
+    baseline_path = RESULTS_DIR / filename
+
+
+
+    with open(baseline_path, "r", encoding="utf-8") as file:
+
+        baseline_results = json.load(file)
+
+
+    per_seed = baseline_results[ "per_seed"]
+
+
+
+
+    best_params_per_seed = {}
+
+
+    for seed_result in per_seed:
+
+        seed = seed_result["seed"]
+
+        best_params = seed_result["best_params"]
+
+
+        best_params_per_seed[seed] = best_params
+
+
+    return best_params_per_seed
+
+
+def run_cross_size_pair(train_resolution, eval_resolution, device):
+    """
+    Entrena CatBoost utilizando una resolucion
+
+    Despues evalua el MISMO modelo sobre todas las imagenesde otra resolucion
+    """
+
+    print()
+    print("=" * 70)
+
+    print(f"{train_resolution}px -> {eval_resolution}px")
+
+    print("=" * 70)
+
+
+
+    paths_train_res, y_train_res = load_inventory(train_resolution)
+
+
+    features_train_res = get_or_compute_features(paths_train_res, train_resolution, device)
+
+
+
+    paths_eval_res, y_eval_res = load_inventory( eval_resolution)
+
+    features_eval_res = get_or_compute_features(paths_eval_res,  eval_resolution, device)
+
+
+    best_params_per_seed = load_best_params_per_seed(train_resolution)
+
+
+    # resultados completos
+    per_seed_results = []
+
+
+    #Solo metricas numericas para agregar
+    per_seed_flat = []
+
+
+
+    for seed in SEEDS:
+
+        print()
+        print(f"Semilla: {seed}")
+
+        train_idx, test_idx = split_train_test(y_train_res, seed=seed, test_size=TEST_SIZE)
+
+
+        x_train = features_train_res[ train_idx]
+
+
+        y_train = y_train_res[ train_idx]
+
+        params = best_params_per_seed[ seed]
+
+
+        model = fit_final_model(x_train, y_train, params, seed=seed)
+
+
+        #prediccion de clases
+        y_pred = model.predict(features_eval_res)
+        y_pred = y_pred.astype(np.int64)
+
+
+        #probabilidades
+        probabilities = model.predict_proba(features_eval_res)
+
+        #Probabilidad de la clase positiva -abnormal
+        y_score = probabilities[:, 1]
+
+
+        metrics = compute_metrics(y_eval_res, y_pred,  y_score)
+
+
+        print(f"Accuracy: {metrics['accuracy']:.4f}")
+
+        print(f"Balanced accuracy: "f"{metrics['balanced_accuracy']:.4f}")
+
+
+        seed_result = {"seed": seed, "best_params": params, "metrics": metrics}
+
+
+        per_seed_results.append(seed_result)
+
+        scalar_metrics = {}
+
+
+        for metric_name, metric_value in metrics.items():
+
+            if np.isscalar(metric_value):
+                scalar_metrics[metric_name] = float(metric_value)
+
+
+        per_seed_flat.append(scalar_metrics)
+
+
+
+        del model
+
+
+    aggregated = aggregate_across_seeds(per_seed_flat)
+
+
+
+    result = {
+        "train_resolution": train_resolution,
+        "eval_resolution": eval_resolution,
+        "aggregated_across_seeds": aggregated,
+        "per_seed": per_seed_results
+    }
+
+
+    return result
+
+
+def main():
+
+    parser = argparse.ArgumentParser( description=("Generalizacion cross-size entre resoluciones de GasHisSDB"))
+
+    args = parser.parse_args()
+
+
+
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+
+    else:
+        device = torch.device("cpu")
+
+
+    print(f"Dispositivo: {device}")
+
+
+    
+    resolution_pairs = permutations(VALID_RESOLUTIONS, 2)
+    resolution_pairs = list(resolution_pairs)
+
+
+    print()
+    print("Combinaciones cross-size:")
+
+
+    for pair in resolution_pairs:
+        print(pair)
+
+
+
+    all_results = []
+
+
+
+    for train_resolution, eval_resolution in resolution_pairs:
+
+        pair_result = run_cross_size_pair(train_resolution, eval_resolution, device)
+
+
+        all_results.append(pair_result)
+
+
+   
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+    output_path = RESULTS_DIR / ("cross_size_results.json")
+
+
+    with open( output_path,  "w", encoding="utf-8") as file:
+
+        json.dump(all_results, file, indent=4)
+
+
+
+    print()
+    print(f"Resultados guardados en: {output_path}")
+
+
+
+
+    summary = {}
+
+
+
+    for resolution in VALID_RESOLUTIONS:
+        summary[resolution] = {}
+
+
+    for result in all_results:
+
+        train_resolution = result["train_resolution"]
+        eval_resolution = result["eval_resolution"]
+        aggregated = result["aggregated_across_seeds"]
+
+
+        mean_accuracy = aggregated["accuracy"]["mean"]
+
+
+        summary[train_resolution][eval_resolution] = mean_accuracy
+
+
+    print()
+    print("=" * 70)
+    print( "RESUMEN CROSS-SIZE")
+    print("=" * 70)
+
+
+    print("Train/Eval", end="\t")
+
+
+    for eval_resolution in VALID_RESOLUTIONS:
+        print(f"{eval_resolution}px", end="\t")
+
+
+    print()
+
+    for train_resolution in VALID_RESOLUTIONS:
+        print(f"{train_resolution}px", end="\t\t")
+
+
+        for eval_resolution in VALID_RESOLUTIONS:
+            
+
+            if train_resolution == eval_resolution:
+                print("-", end="\t")
+
+                continue
+
+
+            accuracy = summary[train_resolution][eval_resolution]
+
+
+            print(f"{accuracy:.4f}", end="\t")
+
+
+        print()
+
+
+
+if __name__ == "__main__":
+
+    main()
+########## src/visualization/shap_cam.py ##########
+"""
+shap_cam.py - mapas de atribucion espacial sobre el clasificador REAL (CatBoost).
+
+Grad-CAM calcula un peso por canal promediando gradientes y combina linealmente
+los mapas de canal con esos pesos. CatBoost no es diferenciable, asi que aqui el
+gradiente se sustituye por el valor SHAP de cada caracteristica, que TreeSHAP
+calcula de forma exacta y por imagen.
+
+Como el global average pooling es lineal, la descomposicion espacial es EXACTA:
+
+    (1/hw) * sum_{i,j} sum_c alpha_c * A_c(i,j)  ==  sum_c alpha_c * GAP(A_c)
+
+es decir, el mapa reparte espacialmente la contribucion real del clasificador a
+la prediccion de esa imagen concreta.
+
+Ventajas frente a visualizar la atencion de CBAM:
+  - No hay sigmoide, luego no hay saturacion: el mapa tiene rango dinamico real.
+  - El mapa tiene signo: rojo empuja hacia Abnormal, azul hacia Normal.
+  - Funciona tambien sobre la configuracion de referencia, que no incorpora
+    ningun mecanismo de atencion y hasta ahora no admitia analisis.
+
+Limitacion que NO resuelve: la resolucion espacial sigue siendo la del mapa del
+backbone (~7x7 para entrada de 224px), asi que las imagenes siguen viendose
+gruesas al ampliarlas.
+
+Uso:
+    python -m src.visualization.shap_cam --resolution 160 --seed 42 --experiment baseline
+    python -m src.visualization.shap_cam --resolution 120 --seed 42 --experiment baseline
+    .
+    .
+    .
+    python -m src.visualization.shap_cam --resolution 80 --seed 42 --experiment cbam
+    .
+    .
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import cv2
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.colorbar
+import matplotlib.colors
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+from catboost import Pool
+
+from src.data.loaders import load_inventory, split_train_test
+from src.data.preprocessing import (
+    load_image_rgb,
+    load_normalization_stats,
+    preprocess_batch,
+)
+from src.features.extractors import (
+    BACKBONE_NAME,
+    FEATURES_DIR,
+    build_backbone,
+    get_or_compute_features,
+)
+from src.models.classifiers import fit_final_model
+
+
+TEST_SIZE = 0.2
+NUM_CHANNELS = 1280
+N_EXAMPLES_PER_CLASS = 3
+
+project_root = Path(__file__).resolve().parents[2]
+RESULTS_DIR = project_root / "results"
+CHECKPOINTS_DIR = RESULTS_DIR / "cbam_checkpoints"
+OUTPUT_DIR = RESULTS_DIR / "interpretability_shapcam"
+
+CLASS_NAMES = {0: "Normal", 1: "Abnormal"}
+
+
+# ---------------------------------------------------------------------------
+# Hiperparametros ya seleccionados en el experimento original
+# ---------------------------------------------------------------------------
+def load_best_params(resolution: int, seed: int, experiment: str) -> dict:
+    """Lee del JSON de resultados los hiperparametros elegidos para esa semilla."""
+    if experiment == "baseline":
+        candidatos = [
+            RESULTS_DIR / f"baseline_{resolution}px_results.json",
+            RESULTS_DIR / f"track_b_{resolution}px_results.json",
+        ]
+    else:
+        candidatos = [RESULTS_DIR / f"{experiment}_{resolution}px_results.json"]
+
+    ruta = next((c for c in candidatos if c.exists()), None)
+    if ruta is None:
+        raise FileNotFoundError(
+            f"No se encontro el JSON de resultados para '{experiment}' a {resolution}px. "
+            f"Buscado en: {[c.name for c in candidatos]}"
+        )
+
+    with open(ruta, "r", encoding="utf-8") as fh:
+        datos = json.load(fh)
+
+    for entrada in datos["per_seed"]:
+        if entrada["seed"] == seed:
+            print(f"Hiperparametros ({ruta.name}): {entrada['best_params']}")
+            return entrada["best_params"]
+
+    raise ValueError(f"La semilla {seed} no aparece en {ruta.name}")
+
+
+# ---------------------------------------------------------------------------
+# Modulo CBAM entrenado (solo para --experiment cbam)
+# ---------------------------------------------------------------------------
+def load_trained_cbam(resolution: int, seed: int, device: torch.device):
+    """Reconstruye el CBAM y le carga los pesos guardados por cbam_checkpoint.py."""
+    from src.models.cbam import CBAM
+
+    ruta = CHECKPOINTS_DIR / f"cbam_{resolution}px_seed{seed}.pt"
+    if not ruta.exists():
+        raise FileNotFoundError(
+            f"No existe el checkpoint {ruta.name}. Generalo primero con:\n"
+            f"  python -m src.interpretability.cbam_checkpoint "
+            f"--resolution {resolution} --seed {seed}"
+        )
+
+    cbam = CBAM(NUM_CHANNELS)
+    cbam.load_state_dict(torch.load(ruta, map_location=device, weights_only=True))
+    cbam = cbam.to(device).eval()
+    for p in cbam.parameters():
+        p.requires_grad = False
+    return cbam
+
+
+# ---------------------------------------------------------------------------
+# PASO 1: recuperar el clasificador de la configuracion a explicar
+# ---------------------------------------------------------------------------
+def rebuild_classifier(resolution: int, seed: int, experiment: str, device: torch.device):
+    """Reentrena el CatBoost con los hiperparametros ya seleccionados. Es barato:
+    las features estan cacheadas y no se repite la busqueda en malla."""
+    paths, y = load_inventory(resolution)
+
+    if experiment == "baseline":
+        features = get_or_compute_features(paths, resolution, device)
+    else:
+        cache = FEATURES_DIR / f"{BACKBONE_NAME}_{resolution}px_cbam_seed{seed}.npy"
+        if not cache.exists():
+            raise FileNotFoundError(
+                f"No existe el cache de features CBAM {cache.name}. Ejecuta antes "
+                f"el experimento cbam para esa resolucion."
+            )
+        features = np.load(cache)
+        print(f"Features CBAM del cache: {cache.name} {features.shape}")
+
+    train_idx, test_idx = split_train_test(y, seed=seed, test_size=TEST_SIZE)
+    best_params = load_best_params(resolution, seed, experiment)
+
+    print(f"Entrenando CatBoost sobre {len(train_idx)} muestras...")
+    model = fit_final_model(features[train_idx], y[train_idx], best_params, seed=seed)
+    print("Clasificador listo.")
+
+    return model, paths, y, features, test_idx
+
+
+# ---------------------------------------------------------------------------
+# PASO 2: pesos SHAP por canal, para UNA imagen
+# ---------------------------------------------------------------------------
+def shap_weights_for_image(model, feature_vector: np.ndarray) -> tuple[np.ndarray, float]:
+    """Devuelve (alpha, valor_esperado). alpha son los 1280 pesos SHAP.
+
+    get_feature_importance devuelve (n_muestras, n_features + 1): la ultima
+    columna es el valor esperado del modelo, no un canal.
+    """
+    pool = Pool(feature_vector.reshape(1, -1))
+    shap = model.get_feature_importance(pool, type="ShapValues")
+    alpha = shap[0, :NUM_CHANNELS].astype(np.float64)
+    valor_esperado = float(shap[0, NUM_CHANNELS])
+    return alpha, valor_esperado
+
+
+def verificar_shap(model, feature_vector, alpha, valor_esperado, tol=1e-3) -> bool:
+    """sum(alpha) + valor_esperado debe igualar la prediccion en log-odds."""
+    raw = float(np.ravel(
+        model.predict(feature_vector.reshape(1, -1), prediction_type="RawFormulaVal")
+    )[0])
+    reconstruido = float(alpha.sum() + valor_esperado)
+    ok = abs(raw - reconstruido) < tol
+    if not ok:
+        print(f"  [AVISO] SHAP no cuadra: raw={raw:.6f} vs reconstruido={reconstruido:.6f}")
+    return ok
+
+
+# ---------------------------------------------------------------------------
+# PASO 3: mapa espacial del backbone, antes del pooling
+# ---------------------------------------------------------------------------
+@torch.no_grad()
+def spatial_feature_map(image_path, backbone, mean, std, device, cbam=None) -> np.ndarray:
+    """Devuelve el mapa (1280, h, w) sobre el que opera el pooling."""
+    batch = preprocess_batch([image_path], mean, std)
+    tensor = torch.from_numpy(batch).to(device)
+
+    fmap = backbone.forward_features(tensor)
+    if cbam is not None:
+        fmap = cbam(fmap)
+
+    return fmap[0].float().cpu().numpy()
+
+
+# ---------------------------------------------------------------------------
+# PASO 4: combinar mapa y pesos
+# ---------------------------------------------------------------------------
+def build_cam(feature_map: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """cam(i,j) = sum_c alpha_c * A_c(i,j) / (h*w). Conserva el signo."""
+    c, h, w = feature_map.shape
+    if c != alpha.shape[0]:
+        raise ValueError(
+            f"Desajuste de canales: el mapa tiene {c} y alpha tiene {alpha.shape[0]}. "
+            "Revisa que no se haya colado la columna del valor esperado."
+        )
+    return np.tensordot(alpha, feature_map, axes=([0], [0])) / (h * w)
+
+
+# ---------------------------------------------------------------------------
+# PASO 5: superposicion con mapa divergente centrado en cero
+# ---------------------------------------------------------------------------
+def overlay_cam(image_rgb: np.ndarray, cam: np.ndarray, vlim: float,
+                alpha_blend: float = 0.5) -> np.ndarray:
+    """Superpone el CAM con escala simetrica [-vlim, +vlim]."""
+    alto, ancho = image_rgb.shape[0], image_rgb.shape[1]
+    cam_resized = cv2.resize(cam.astype(np.float32), (ancho, alto),
+                             interpolation=cv2.INTER_CUBIC)
+
+    if vlim <= 0:
+        norm = np.full_like(cam_resized, 0.5)
+    else:
+        norm = np.clip((cam_resized + vlim) / (2.0 * vlim), 0.0, 1.0)
+
+    heatmap = plt.cm.bwr(norm)[:, :, :3] * 255.0
+    mezcla = (1 - alpha_blend) * image_rgb.astype(np.float32) + alpha_blend * heatmap
+    return np.clip(mezcla, 0, 255).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# PASO 6: orquestacion
+# ---------------------------------------------------------------------------
+def visualize_shap_cam(resolution: int, seed: int, experiment: str, device: torch.device):
+    model, paths, y, features, test_idx = rebuild_classifier(
+        resolution, seed, experiment, device
+    )
+
+    mean, std = load_normalization_stats(resolution)
+    backbone = build_backbone(device)
+    cbam = load_trained_cbam(resolution, seed, device) if experiment == "cbam" else None
+
+    # Ejemplos del conjunto de TEST: imagenes que el clasificador no vio al ajustarse.
+    seleccion = []
+    for etiqueta in (0, 1):
+        seleccion.extend([i for i in test_idx if y[i] == etiqueta][:N_EXAMPLES_PER_CLASS])
+
+    print(f"\nCalculando SHAP-CAM para {len(seleccion)} imagenes de test...")
+
+    ejemplos = []
+    for pos, idx in enumerate(seleccion, start=1):
+        alpha, valor_esperado = shap_weights_for_image(model, features[idx])
+        verificar_shap(model, features[idx], alpha, valor_esperado)
+
+        fmap = spatial_feature_map(paths[idx], backbone, mean, std, device, cbam)
+        cam = build_cam(fmap, alpha)
+
+        # La suma del mapa debe igualar sum(alpha): confirma el factor 1/(h*w).
+        if abs(cam.sum() - alpha.sum()) > 1e-6 * max(1.0, abs(alpha.sum())):
+            print(f"  [AVISO] cam.sum()={cam.sum():.6f} != alpha.sum()={alpha.sum():.6f}")
+
+        etiqueta = int(y[idx])
+        prob = float(model.predict_proba(features[idx].reshape(1, -1))[0, 1])
+        ejemplos.append({
+            "path": paths[idx],
+            "clase": CLASS_NAMES[etiqueta],
+            "cam": cam,
+            "prob": prob,
+        })
+        print(f"  [{pos}/{len(seleccion)}] {CLASS_NAMES[etiqueta]:9s} "
+              f"P(Abn)={prob:.3f}  rango CAM=[{cam.min():+.4f}, {cam.max():+.4f}]")
+
+    # Escala de color compartida entre todas las imagenes del lote.
+    vlim = max(float(np.abs(e["cam"]).max()) for e in ejemplos)
+    print(f"\nEscala simetrica compartida: [{-vlim:+.4f}, {vlim:+.4f}]")
+    print(f"Rango dinamico total: {2 * vlim:.4f}")
+    print("(comparar con el rango ~0,03-0,05 de los mapas de atencion de CBAM)")
+
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    contadores = {"Normal": 0, "Abnormal": 0}
+    for e in ejemplos:
+        image_rgb = load_image_rgb(e["path"])
+        overlay = overlay_cam(image_rgb, e["cam"], vlim)
+
+        fig, axes = plt.subplots(1, 2, figsize=(8, 4))
+        axes[0].imshow(image_rgb)
+        axes[0].set_title(f"Original - {e['clase']}")
+        axes[0].axis("off")
+
+        axes[1].imshow(overlay)
+        axes[1].set_title(f"SHAP-CAM   P(Abn)={e['prob']:.2f}")
+        axes[1].axis("off")
+
+        n = contadores[e["clase"]]
+        contadores[e["clase"]] += 1
+        nombre = f"shapcam_{experiment}_{resolution}px_{e['clase']}_{n}.png"
+        fig.tight_layout()
+        fig.savefig(OUTPUT_DIR / nombre, dpi=150)
+        plt.close(fig)
+
+    # Barra de color de referencia, para acompanar a las figuras en la memoria.
+    fig, ax = plt.subplots(figsize=(6, 1.2))
+    norm = matplotlib.colors.Normalize(vmin=-vlim, vmax=vlim)
+    cb = matplotlib.colorbar.ColorbarBase(ax, cmap=plt.cm.bwr, norm=norm,
+                                          orientation="horizontal")
+    cb.set_label("Contribucion SHAP   (azul: Normal   |   rojo: Abnormal)")
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / f"shapcam_{experiment}_{resolution}px_escala.png", dpi=150)
+    plt.close(fig)
+
+    print(f"\nSe han guardado {len(ejemplos)} visualizaciones y la barra de escala.")
+    print(f"Directorio: {OUTPUT_DIR}")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Mapas de atribucion SHAP-CAM.")
+    parser.add_argument("--resolution", type=int, required=True, choices=[80, 120, 160])
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--experiment", choices=["baseline", "cbam"], default="baseline")
+    args = parser.parse_args()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("=" * 70)
+    print(f"SHAP-CAM | {args.experiment} | {args.resolution}px | semilla {args.seed}")
+    print(f"Dispositivo: {device}")
+    print("=" * 70)
+
+    visualize_shap_cam(args.resolution, args.seed, args.experiment, device)
+
+
+if __name__ == "__main__":
+    main()
+########## src/test_atencion_sintetica.py ##########
+"""
+test_atencion_sintetica.py - diagnostico rapido: comprueba si el patron de
+"esquinas calientes" visto en las visualizaciones reales es un artefacto
+posicional (independiente del contenido de la imagen) o responde de verdad
+al contenido histologico.
+
+Genera una imagen completamente uniforme (sin ninguna estructura real) y
+calcula su mapa de atencion espacial de CBAM con el mismo pipeline exacto
+que usan las imagenes reales (mismo resize, misma normalizacion). Si el
+patron de esquinas persiste incluso sin contenido, confirma que es un
+artefacto de la arquitectura (el kernel 7x7 de SpatialAttention sobre un
+mapa de solo ~7x7 hace que las celdas de esquina tengan su campo receptivo
+dominado por padding, no por datos reales) - no algo aprendido sobre tejido.
+
+Script de un solo uso para depurar esta hipotesis - no forma parte del
+pipeline. Puedes borrarlo o moverlo a una carpeta de scripts de debug una
+vez tengas la respuesta.
+"""
+
+from __future__ import annotations
+
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+
+from src.data.preprocessing import INPUT_SIZE, load_normalization_stats
+from src.features.extractors import build_backbone
+from src.visualization.visualize import load_trained_cbam
+
+RESOLUTION = 160
+SEED = 42
+
+
+def make_synthetic_image(resolution: int, value: int) -> np.ndarray:
+    """Imagen RGB completamente uniforme, sin ninguna estructura."""
+    return np.full((resolution, resolution, 3), value, dtype=np.uint8)
+
+
+def compute_attention_from_array(
+    image_rgb: np.ndarray, backbone, cbam, mean: np.ndarray, std: np.ndarray, device: torch.device,
+) -> np.ndarray:
+    """Igual que compute_spatial_attention_map de visualize.py, pero parte
+    de un array ya en memoria en vez de una ruta a disco - mismo pipeline
+    de preprocesado exacto (resize -> escalar a [0,1] -> normalizar ->
+    NHWC->NCHW), para que la comparacion con las imagenes reales sea justa."""
+    resized = cv2.resize(image_rgb, (INPUT_SIZE, INPUT_SIZE), interpolation=cv2.INTER_LINEAR)
+    scaled = resized.astype(np.float32) / 255.0
+    normalized = (scaled - mean) / std
+    chw = normalized.transpose(2, 0, 1)
+    batch = np.ascontiguousarray(chw[np.newaxis, ...])  # (1, 3, H, W)
+
+    tensor = torch.from_numpy(batch).float().to(device)
+
+    with torch.no_grad():
+        feature_map = backbone.forward_features(tensor)
+        channel_weights = cbam.channel_attention(feature_map)
+        x_channel = feature_map * channel_weights
+        spatial_weights = cbam.spatial_attention(x_channel)
+
+    return spatial_weights[0, 0].cpu().numpy()
+
+
+def main() -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    backbone = build_backbone(device)
+    cbam = load_trained_cbam(RESOLUTION, SEED, device)
+    mean, std = load_normalization_stats(RESOLUTION)
+
+    # Tres imagenes uniformes de valores distintos, por si el nivel de gris
+    # concreto importara (no deberia, pero es gratis comprobarlo).
+    valores_prueba = [0, 128, 255]
+
+    fig, axes = plt.subplots(1, len(valores_prueba), figsize=(4 * len(valores_prueba), 4))
+
+    for ax, valor in zip(axes, valores_prueba):
+        imagen = make_synthetic_image(RESOLUTION, valor)
+        mapa = compute_attention_from_array(imagen, backbone, cbam, mean, std, device)
+
+        print(f"\n=== Imagen uniforme, valor={valor} ===")
+        print(np.round(mapa, 4))
+        print(f"Min: {mapa.min():.4f}  Max: {mapa.max():.4f}  Rango: {mapa.max() - mapa.min():.4f}")
+
+        im = ax.imshow(mapa, cmap="jet")
+        ax.set_title(f"Valor uniforme = {valor}")
+        ax.axis("off")
+        fig.colorbar(im, ax=ax, fraction=0.046)
+
+    plt.tight_layout()
+    output_path = "test_atencion_sintetica.png"
+    plt.savefig(output_path, dpi=150)
+    print(f"\nGuardado: {output_path}")
+
+
+if __name__ == "__main__":
+    main()
+########## configs/normalization_stats.yaml ##########
+gashisdb_80:
+  resolution: 80
+  mean:
+  - 0.9019
+  - 0.7846
+  - 0.9066
+  std:
+  - 0.1276
+  - 0.1786
+  - 0.0993
+  n_sample_images: 5000
+  note: Media/std por canal RGB en [0,1], sobre muestra estratificada por clase (seed
+    42). Usar en transforms.Normalize en lugar de los valores de ImageNet.
+gashisdb_120:
+  resolution: 120
+  mean:
+  - 0.9035
+  - 0.7863
+  - 0.907
+  std:
+  - 0.1262
+  - 0.1778
+  - 0.0995
+  n_sample_images: 5000
+  note: Media/std por canal RGB en [0,1], sobre muestra estratificada por clase (seed
+    42). Usar en transforms.Normalize en lugar de los valores de ImageNet.
+gashisdb_160:
+  resolution: 160
+  mean:
+  - 0.9041
+  - 0.7873
+  - 0.9079
+  std:
+  - 0.1259
+  - 0.1774
+  - 0.0983
+  n_sample_images: 5000
+  note: Media/std por canal RGB en [0,1], sobre muestra estratificada por clase (seed
+    42). Usar en transforms.Normalize en lugar de los valores de ImageNet.
+

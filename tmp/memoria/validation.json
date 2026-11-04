@@ -1,0 +1,11 @@
+{
+  "words": 16707,
+  "pages": 50,
+  "main_runs": 45,
+  "cv_rows": 6075,
+  "bootstrap_rows": 180,
+  "cross_runs": 30,
+  "tables": 25,
+  "figures": 6,
+  "verified": "Aggregate means, population std and accuracy from confusion matrices match original JSON."
+}

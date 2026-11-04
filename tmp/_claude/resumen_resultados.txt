@@ -1,0 +1,1473 @@
+================================================================================
+results/augmentation_120px_results.json 81584 bytes
+================================================================================
+: dict(7)
+  track: 'Augmentation'
+  description: 'Experimento con data augmentation: EfficientNetV2B0 congelado + CatBoost. Las vistas aumentadas se usan únicamente en el entrenamiento de cada fold.'
+  timestamp_utc: '2026-08-07T12:54:14.823287+00:00'
+  config: dict(19)
+    experiment: 'augmentation'
+    resolution_px: 120
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_120'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 65261
+    n_abnormal: 24801
+    n_normal: 40460
+    augmentation_enabled: True
+    augmentation_views_per_image: 3
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9319236957021374
+      std: 0.0013345230422380488
+      values: list(len=5) first=0.9325825480732398
+    balanced_accuracy: dict(3)
+      mean: 0.9306885351814346
+      std: 0.001391935581301397
+      values: list(len=5) first=0.9311965261815268
+    precision_abnormal: dict(3)
+      mean: 0.8984338057836598
+      std: 0.003649549737700624
+      values: list(len=5) first=0.9000196039992159
+    recall_abnormal: dict(3)
+      mean: 0.9255392058052812
+      std: 0.0035136075096957775
+      values: list(len=5) first=0.9254182624470872
+    f1_abnormal: dict(3)
+      mean: 0.9117740789640376
+      std: 0.00166860564253681
+      values: list(len=5) first=0.9125422381236334
+    precision_macro: dict(3)
+      mean: 0.925965205640925
+      std: 0.0015554537829097525
+      values: list(len=5) first=0.926745214474457
+    recall_macro: dict(3)
+      mean: 0.9306885351814346
+      std: 0.001391935581301397
+      values: list(len=5) first=0.9311965261815268
+    f1_macro: dict(3)
+      mean: 0.9281770506934386
+      std: 0.0013842569554642008
+      values: list(len=5) first=0.9288465366634123
+    auc_roc: dict(3)
+      mean: 0.9817533608413544
+      std: 0.00047424923778931286
+      values: list(len=5) first=0.982393439963699
+    specificity: dict(3)
+      mean: 0.9358378645575878
+      std: 0.0026954922571444627
+      values: list(len=5) first=0.9369747899159664
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 52208
+      n_test: 13053
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.2
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.2
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.929763721418281
+        best_cv_balanced_accuracy_std: 0.0028560508888400855
+        best_cv_fold_scores: list(len=5) first=0.9291788743061575
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9325825480732398
+        balanced_accuracy: 0.9311965261815268
+        precision_abnormal: 0.9000196039992159
+        recall_abnormal: 0.9254182624470872
+        f1_abnormal: 0.9125422381236334
+        precision_macro: 0.926745214474457
+        recall_macro: 0.9311965261815268
+        f1_macro: 0.9288465366634123
+        auc_roc: 0.982393439963699
+        specificity: 0.9369747899159664
+        confusion_matrix: dict(5)
+          tn: 7582
+          fp: 510
+          fn: 370
+          tp: 4591
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9284436528001225
+          ci95_high: 0.9368727495594883
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9269791550544701
+          ci95_high: 0.9356153593557733
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.9072038381771433
+          ci95_high: 0.9179918476132718
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9805449923704704
+          ci95_high: 0.9841391402498109
+          n_valid_resamples: 1000
+
+================================================================================
+results/augmentation_160px_results.json 81549 bytes
+================================================================================
+: dict(7)
+  track: 'Augmentation'
+  description: 'Experimento con data augmentation: EfficientNetV2B0 congelado + CatBoost. Las vistas aumentadas se usan únicamente en el entrenamiento de cada fold.'
+  timestamp_utc: '2026-08-07T15:59:06.160402+00:00'
+  config: dict(19)
+    experiment: 'augmentation'
+    resolution_px: 160
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_160'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 33284
+    n_abnormal: 13124
+    n_normal: 20160
+    augmentation_enabled: True
+    augmentation_views_per_image: 3
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9438185368784737
+      std: 0.00265167422726351
+      values: list(len=5) first=0.9426167943518101
+    balanced_accuracy: dict(3)
+      mean: 0.9421751984126985
+      std: 0.002779511406294715
+      values: list(len=5) first=0.9401994047619048
+    precision_abnormal: dict(3)
+      mean: 0.9240076558209779
+      std: 0.004850939026232387
+      values: list(len=5) first=0.9259399924041017
+    recall_abnormal: dict(3)
+      mean: 0.9343999999999999
+      std: 0.004778789114077474
+      values: list(len=5) first=0.9287619047619048
+    f1_abnormal: dict(3)
+      mean: 0.9291617252980474
+      std: 0.0033267075941042583
+      values: list(len=5) first=0.9273488018257893
+    precision_macro: dict(3)
+      mean: 0.9404968053134224
+      std: 0.002851620968647724
+      values: list(len=5) first=0.9397344097209375
+    recall_macro: dict(3)
+      mean: 0.9421751984126985
+      std: 0.002779511406294715
+      values: list(len=5) first=0.9401994047619048
+    f1_macro: dict(3)
+      mean: 0.9413054910587964
+      std: 0.002763528495123318
+      values: list(len=5) first=0.9399653641700942
+    auc_roc: dict(3)
+      mean: 0.9867921201814059
+      std: 0.0006628010134894692
+      values: list(len=5) first=0.9870485638699925
+    specificity: dict(3)
+      mean: 0.9499503968253968
+      std: 0.003484247882705542
+      values: list(len=5) first=0.9516369047619048
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 26627
+      n_test: 6657
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.2
+        depth: 8
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.2
+          depth: 8
+        best_cv_balanced_accuracy_mean: 0.939729148009838
+        best_cv_balanced_accuracy_std: 0.004160993863023477
+        best_cv_fold_scores: list(len=5) first=0.9351474625808166
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9426167943518101
+        balanced_accuracy: 0.9401994047619048
+        precision_abnormal: 0.9259399924041017
+        recall_abnormal: 0.9287619047619048
+        f1_abnormal: 0.9273488018257893
+        precision_macro: 0.9397344097209375
+        recall_macro: 0.9401994047619048
+        f1_macro: 0.9399653641700942
+        auc_roc: 0.9870485638699925
+        specificity: 0.9516369047619048
+        confusion_matrix: dict(5)
+          tn: 3837
+          fp: 195
+          fn: 187
+          tp: 2438
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9370549797205949
+          ci95_high: 0.9486255069851285
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9342057936372855
+          ci95_high: 0.9465447030294816
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.9196561692513403
+          ci95_high: 0.9350809580678947
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9848984367163603
+          ci95_high: 0.9892977664231145
+          n_valid_resamples: 1000
+
+================================================================================
+results/augmentation_80px_results.json 81636 bytes
+================================================================================
+: dict(7)
+  track: 'Augmentation'
+  description: 'Experimento con data augmentation: EfficientNetV2B0 congelado + CatBoost. Las vistas aumentadas se usan únicamente en el entrenamiento de cada fold.'
+  timestamp_utc: '2026-08-07T02:05:33.367315+00:00'
+  config: dict(19)
+    experiment: 'augmentation'
+    resolution_px: 80
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_80'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 146651
+    n_abnormal: 59151
+    n_normal: 87500
+    augmentation_enabled: True
+    augmentation_views_per_image: 3
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9076199243121612
+      std: 0.0017256357571558947
+      values: list(len=5) first=0.9044696737240462
+    balanced_accuracy: dict(3)
+      mean: 0.9076301739980922
+      std: 0.0014734325201768315
+      values: list(len=5) first=0.904828626972723
+    precision_abnormal: dict(3)
+      mean: 0.8691195627876859
+      std: 0.003694234524661078
+      values: list(len=5) first=0.8633400402414487
+    recall_abnormal: dict(3)
+      mean: 0.9076832051390415
+      std: 0.0015348909762916017
+      values: list(len=5) first=0.9066858253740174
+    f1_abnormal: dict(3)
+      mean: 0.8879773785203129
+      std: 0.0018674046471325624
+      values: list(len=5) first=0.8844821899736148
+    precision_macro: dict(3)
+      mean: 0.9023892413890614
+      std: 0.0018745318230112518
+      values: list(len=5) first=0.8990188903443137
+    recall_macro: dict(3)
+      mean: 0.9076301739980922
+      std: 0.0014734325201768315
+      values: list(len=5) first=0.904828626972723
+    f1_macro: dict(3)
+      mean: 0.9046892353798965
+      std: 0.001721880464675949
+      values: list(len=5) first=0.901521453063887
+    auc_roc: dict(3)
+      mean: 0.9694674281850345
+      std: 0.0009261340186656048
+      values: list(len=5) first=0.9676666288322445
+    specificity: dict(3)
+      mean: 0.9075771428571429
+      std: 0.0030483665749889946
+      values: list(len=5) first=0.9029714285714285
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 117320
+      n_test: 29331
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.2
+        depth: 8
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.2
+          depth: 8
+        best_cv_balanced_accuracy_mean: 0.9078262045646662
+        best_cv_balanced_accuracy_std: 0.0016302086497710028
+        best_cv_fold_scores: list(len=5) first=0.9048368554522401
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9044696737240462
+        balanced_accuracy: 0.904828626972723
+        precision_abnormal: 0.8633400402414487
+        recall_abnormal: 0.9066858253740174
+        f1_abnormal: 0.8844821899736148
+        precision_macro: 0.8990188903443137
+        recall_macro: 0.904828626972723
+        f1_macro: 0.901521453063887
+        auc_roc: 0.9676666288322445
+        specificity: 0.9029714285714285
+        confusion_matrix: dict(5)
+          tn: 15802
+          fp: 1698
+          fn: 1104
+          tp: 10727
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9011617401384201
+          ci95_high: 0.9079813166956462
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9013955592882806
+          ci95_high: 0.9083712585377872
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.8803269208075234
+          ci95_high: 0.8885783225156505
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9658737161990256
+          ci95_high: 0.9693874814802875
+          n_valid_resamples: 1000
+
+================================================================================
+results/baseline_120px_results.json 81399 bytes
+================================================================================
+: dict(7)
+  track: 'B'
+  description: 'Baseline corregido sin fuga: EfficientNetV2B0 (timm, congelado) + CatBoost.'
+  timestamp_utc: '2026-07-24T02:50:12.560931+00:00'
+  config: dict(16)
+    resolution_px: 120
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_120'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 65261
+    n_abnormal: 24801
+    n_normal: 40460
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9223933195434
+      std: 0.0017490082801043378
+      values: list(len=5) first=0.9228529839883551
+    balanced_accuracy: dict(3)
+      mean: 0.9209663028567961
+      std: 0.001908868289836545
+      values: list(len=5) first=0.9221403716163534
+    precision_abnormal: dict(3)
+      mean: 0.8847627749352599
+      std: 0.0040579126354313285
+      values: list(len=5) first=0.8826945412311266
+    recall_abnormal: dict(3)
+      mean: 0.9150171336424109
+      std: 0.004441181811383349
+      values: list(len=5) first=0.9191695222737352
+    f1_abnormal: dict(3)
+      mean: 0.8996211678516497
+      std: 0.0022413882556123945
+      values: list(len=5) first=0.900562851782364
+    precision_macro: dict(3)
+      mean: 0.9157781167361406
+      std: 0.0019198270364739957
+      values: list(len=5) first=0.9159256908006781
+    recall_macro: dict(3)
+      mean: 0.9209663028567961
+      std: 0.001908868289836545
+      values: list(len=5) first=0.9221403716163534
+    f1_macro: dict(3)
+      mean: 0.9181819163359997
+      std: 0.0018306470439433042
+      values: list(len=5) first=0.9187713188757242
+    auc_roc: dict(3)
+      mean: 0.976250662234136
+      std: 0.0009784103869968802
+      values: list(len=5) first=0.9764658901966232
+    specificity: dict(3)
+      mean: 0.9269154720711814
+      std: 0.003093521813072649
+      values: list(len=5) first=0.9251112209589718
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 52208
+      n_test: 13053
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.1
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.1
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.9188429236180186
+        best_cv_balanced_accuracy_std: 0.0018708683216348359
+        best_cv_fold_scores: list(len=5) first=0.9195696791508465
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9228529839883551
+        balanced_accuracy: 0.9221403716163534
+        precision_abnormal: 0.8826945412311266
+        recall_abnormal: 0.9191695222737352
+        f1_abnormal: 0.900562851782364
+        precision_macro: 0.9159256908006781
+        recall_macro: 0.9221403716163534
+        f1_macro: 0.9187713188757242
+        auc_roc: 0.9764658901966232
+        specificity: 0.9251112209589718
+        confusion_matrix: dict(5)
+          tn: 7486
+          fp: 606
+          fn: 401
+          tp: 4560
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9186393932429326
+          ci95_high: 0.9273749329656018
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9174726951427304
+          ci95_high: 0.9267987847916831
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.8945473605313577
+          ci95_high: 0.9064166756292709
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.974448330229548
+          ci95_high: 0.9785319634193669
+          n_valid_resamples: 1000
+
+================================================================================
+results/baseline_160px_results.json 81451 bytes
+================================================================================
+: dict(7)
+  track: 'Baseline'
+  description: 'Baseline: EfficientNetV2B0 + CatBoost.'
+  timestamp_utc: '2026-08-08T08:59:19.282194+00:00'
+  config: dict(19)
+    experiment: 'baseline'
+    resolution_px: 160
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_160'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 33284
+    n_abnormal: 13124
+    n_normal: 20160
+    augmentation_enabled: False
+    augmentation_views_per_image: 0
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9323719393120025
+      std: 0.00113372163221349
+      values: list(len=5) first=0.9304491512693406
+    balanced_accuracy: dict(3)
+      mean: 0.9303994047619047
+      std: 0.0012898671418554017
+      values: list(len=5) first=0.9289583333333333
+    precision_abnormal: dict(3)
+      mean: 0.9087003092424493
+      std: 0.003653752188346519
+      values: list(len=5) first=0.9036594473487677
+    recall_abnormal: dict(3)
+      mean: 0.9210666666666667
+      std: 0.004005619635228939
+      values: list(len=5) first=0.9219047619047619
+    f1_abnormal: dict(3)
+      mean: 0.9148278345674496
+      std: 0.001421606638278169
+      values: list(len=5) first=0.9126909296624552
+    precision_macro: dict(3)
+      mean: 0.9284311565992718
+      std: 0.0013072047181807282
+      values: list(len=5) first=0.926069482407734
+    recall_macro: dict(3)
+      mean: 0.9303994047619047
+      std: 0.0012898671418554017
+      values: list(len=5) first=0.9289583333333333
+    f1_macro: dict(3)
+      mean: 0.9293749072614015
+      std: 0.001174991920140227
+      values: list(len=5) first=0.9274476992588896
+    auc_roc: dict(3)
+      mean: 0.9821052343159486
+      std: 0.0007068610383007588
+      values: list(len=5) first=0.9820515873015874
+    specificity: dict(3)
+      mean: 0.9397321428571429
+      std: 0.002840837512554816
+      values: list(len=5) first=0.9360119047619048
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 26627
+      n_test: 6657
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.1
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.1
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.9293043413399621
+        best_cv_balanced_accuracy_std: 0.003836071980194176
+        best_cv_fold_scores: list(len=5) first=0.9245948100256842
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9304491512693406
+        balanced_accuracy: 0.9289583333333333
+        precision_abnormal: 0.9036594473487677
+        recall_abnormal: 0.9219047619047619
+        f1_abnormal: 0.9126909296624552
+        precision_macro: 0.926069482407734
+        recall_macro: 0.9289583333333333
+        f1_macro: 0.9274476992588896
+        auc_roc: 0.9820515873015874
+        specificity: 0.9360119047619048
+        confusion_matrix: dict(5)
+          tn: 3774
+          fp: 258
+          fn: 205
+          tp: 2420
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9247408742676881
+          ci95_high: 0.9367582995343248
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9231815803981992
+          ci95_high: 0.935539720581788
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.9052102126779127
+          ci95_high: 0.9212632817072218
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9795264717766015
+          ci95_high: 0.9846133438112206
+          n_valid_resamples: 1000
+
+================================================================================
+results/baseline_80px_results.json 81697 bytes
+================================================================================
+: dict(8)
+  track: 'B'
+  description: 'Baseline corregido sin fuga: EfficientNetV2B0 (timm, congelado) + CatBoost.'
+  timestamp_utc: '2026-07-16T20:17:20.306380+00:00'
+  limitacion_metodologica: 'Split estratificado sin agrupacion por WSI — el EDA (eda.ipynb, seccion 6) confirmo que los nombres de archivo no permiten reconstruir la WSI de origen. Resultados reportados como cota superior optim
+  config: dict(16)
+    resolution_px: 80
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_80'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 146651
+    n_abnormal: 59151
+    n_normal: 87500
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.896362210630391
+      std: 0.0014690197164684213
+      values: list(len=5) first=0.8941393065357471
+    balanced_accuracy: dict(3)
+      mean: 0.8963120856828912
+      std: 0.0014259691459145773
+      values: list(len=5) first=0.8942137532149197
+    precision_abnormal: dict(3)
+      mean: 0.8541724366400965
+      std: 0.0026396697630678744
+      values: list(len=5) first=0.8506670953222955
+    recall_abnormal: dict(3)
+      mean: 0.8960527427943538
+      std: 0.0021717165889952364
+      values: list(len=5) first=0.8945989350012679
+    f1_abnormal: dict(3)
+      mean: 0.8746080038294866
+      std: 0.0016907787931442879
+      values: list(len=5) first=0.8720800889877642
+    precision_macro: dict(3)
+      mean: 0.8907452916046772
+      std: 0.0015371564824757393
+      values: list(len=5) first=0.8884160273816759
+    recall_macro: dict(3)
+      mean: 0.8963120856828912
+      std: 0.0014259691459145773
+      values: list(len=5) first=0.8942137532149197
+    f1_macro: dict(3)
+      mean: 0.8931458276265557
+      std: 0.0014898276181087204
+      values: list(len=5) first=0.89089479455931
+    auc_roc: dict(3)
+      mean: 0.9625545682649698
+      std: 0.00042013385640216457
+      values: list(len=5) first=0.9619367859255951
+    specificity: dict(3)
+      mean: 0.8965714285714286
+      std: 0.002219909908081865
+      values: list(len=5) first=0.8938285714285714
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 117320
+      n_test: 29331
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.2
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.2
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.8964527895181742
+        best_cv_balanced_accuracy_std: 0.000978773029754576
+        best_cv_fold_scores: list(len=5) first=0.8972584530853762
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.8941393065357471
+        balanced_accuracy: 0.8942137532149197
+        precision_abnormal: 0.8506670953222955
+        recall_abnormal: 0.8945989350012679
+        f1_abnormal: 0.8720800889877642
+        precision_macro: 0.8884160273816759
+        recall_macro: 0.8942137532149197
+        f1_macro: 0.89089479455931
+        auc_roc: 0.9619367859255951
+        specificity: 0.8938285714285714
+        confusion_matrix: dict(5)
+          tn: 15642
+          fp: 1858
+          fn: 1247
+          tp: 10584
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.8903549145954792
+          ci95_high: 0.8978222699532917
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.8903340575094502
+          ci95_high: 0.8978622882067916
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.8672804160287991
+          ci95_high: 0.8764964550545208
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9599248723310827
+          ci95_high: 0.9637921263440127
+          n_valid_resamples: 1000
+
+================================================================================
+results/cbam_120px_results.json 81593 bytes
+================================================================================
+: dict(7)
+  track: 'CBAM'
+  description: 'Experimento con atencion CBAM: EfficientNetV2B0 congelado + CBAM (entrenado por semilla sobre el 80% de train) + CatBoost.'
+  timestamp_utc: '2026-08-30T04:46:58.411195+00:00'
+  config: dict(19)
+    experiment: 'cbam'
+    resolution_px: 120
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_120'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 65261
+    n_abnormal: 24801
+    n_normal: 40460
+    augmentation_enabled: False
+    augmentation_views_per_image: 0
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9345744273347124
+      std: 0.0044473838270742425
+      values: list(len=5) first=0.9393242932659159
+    balanced_accuracy: dict(3)
+      mean: 0.9328342485125949
+      std: 0.004495503061261193
+      values: list(len=5) first=0.9370239623885885
+    precision_abnormal: dict(3)
+      mean: 0.9045424876812076
+      std: 0.007421071047570629
+      values: list(len=5) first=0.9141665010927876
+    recall_abnormal: dict(3)
+      mean: 0.9255795202580124
+      std: 0.005709016181080451
+      values: list(len=5) first=0.9274339850836525
+    f1_abnormal: dict(3)
+      mean: 0.914926858315616
+      std: 0.005669137966411561
+      values: list(len=5) first=0.9207524514708826
+    precision_macro: dict(3)
+      mean: 0.929130055290209
+      std: 0.00485560122423896
+      values: list(len=5) first=0.9346393602720796
+    recall_macro: dict(3)
+      mean: 0.9328342485125949
+      std: 0.004495503061261193
+      values: list(len=5) first=0.9370239623885885
+    f1_macro: dict(3)
+      mean: 0.9308877725066671
+      std: 0.004661732191448045
+      values: list(len=5) first=0.9357982714156796
+    auc_roc: dict(3)
+      mean: 0.9830938911248719
+      std: 0.002468791071812039
+      values: list(len=5) first=0.9850893319847355
+    specificity: dict(3)
+      mean: 0.9400889767671774
+      std: 0.0049907496025781714
+      values: list(len=5) first=0.9466139396935245
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 52208
+      n_test: 13053
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.1
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.1
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.9598116273325262
+        best_cv_balanced_accuracy_std: 0.00231242326326727
+        best_cv_fold_scores: list(len=5) first=0.9580145956032566
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9393242932659159
+        balanced_accuracy: 0.9370239623885885
+        precision_abnormal: 0.9141665010927876
+        recall_abnormal: 0.9274339850836525
+        f1_abnormal: 0.9207524514708826
+        precision_macro: 0.9346393602720796
+        recall_macro: 0.9370239623885885
+        f1_macro: 0.9357982714156796
+        auc_roc: 0.9850893319847355
+        specificity: 0.9466139396935245
+        confusion_matrix: dict(5)
+          tn: 7660
+          fp: 432
+          fn: 360
+          tp: 4601
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9352639240021451
+          ci95_high: 0.9435378840113384
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9326462286016838
+          ci95_high: 0.941521328484709
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.9152879980778161
+          ci95_high: 0.926122646560882
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9834819581816141
+          ci95_high: 0.9865975526382966
+          n_valid_resamples: 1000
+
+================================================================================
+results/cbam_160px_results.json 81517 bytes
+================================================================================
+: dict(7)
+  track: 'CBAM'
+  description: 'Experimento con atencion CBAM: EfficientNetV2B0 congelado + CBAM (entrenado por semilla sobre el 80% de train) + CatBoost.'
+  timestamp_utc: '2026-08-29T09:09:29.060048+00:00'
+  config: dict(19)
+    experiment: 'cbam'
+    resolution_px: 160
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_160'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 33284
+    n_abnormal: 13124
+    n_normal: 20160
+    augmentation_enabled: False
+    augmentation_views_per_image: 0
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9469731110109659
+      std: 0.0017206334460899955
+      values: list(len=5) first=0.9472735466426319
+    balanced_accuracy: dict(3)
+      mean: 0.9451382936507937
+      std: 0.002063105370513414
+      values: list(len=5) first=0.9458382936507936
+    precision_abnormal: dict(3)
+      mean: 0.9295880213111296
+      std: 0.0015797463586589644
+      values: list(len=5) first=0.9280873493975904
+    recall_abnormal: dict(3)
+      mean: 0.9364571428571429
+      std: 0.0038804820047990216
+      values: list(len=5) first=0.939047619047619
+    f1_abnormal: dict(3)
+      mean: 0.9330061244694383
+      std: 0.0022670481418520486
+      values: list(len=5) first=0.9335353152811967
+    precision_macro: dict(3)
+      mean: 0.9440124266831693
+      std: 0.0016292950940754662
+      values: list(len=5) first=0.9440486734491076
+    recall_macro: dict(3)
+      mean: 0.9451382936507937
+      std: 0.002063105370513414
+      values: list(len=5) first=0.9458382936507936
+    f1_macro: dict(3)
+      mean: 0.9445634956794017
+      std: 0.0018249989779670786
+      values: list(len=5) first=0.9449202780812805
+    auc_roc: dict(3)
+      mean: 0.9882130196523053
+      std: 0.0006029967289354004
+      values: list(len=5) first=0.9879083522297808
+    specificity: dict(3)
+      mean: 0.9538194444444444
+      std: 0.0010799375524344096
+      values: list(len=5) first=0.9526289682539683
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 26627
+      n_test: 6657
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.05
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.05
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.9762736062399451
+        best_cv_balanced_accuracy_std: 0.0004645610408909218
+        best_cv_fold_scores: list(len=5) first=0.9764484988043575
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9472735466426319
+        balanced_accuracy: 0.9458382936507936
+        precision_abnormal: 0.9280873493975904
+        recall_abnormal: 0.939047619047619
+        f1_abnormal: 0.9335353152811967
+        precision_macro: 0.9440486734491076
+        recall_macro: 0.9458382936507936
+        f1_macro: 0.9449202780812805
+        auc_roc: 0.9879083522297808
+        specificity: 0.9526289682539683
+        confusion_matrix: dict(5)
+          tn: 3841
+          fp: 191
+          fn: 160
+          tp: 2465
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.9421623854589155
+          ci95_high: 0.9525311701967853
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9402023377095745
+          ci95_high: 0.951478063361017
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.9267474665089064
+          ci95_high: 0.9405906389070748
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.9858716811197326
+          ci95_high: 0.9899143155529593
+          n_valid_resamples: 1000
+
+================================================================================
+results/cbam_80px_results.json 81588 bytes
+================================================================================
+: dict(7)
+  track: 'CBAM'
+  description: 'Experimento con atencion CBAM: EfficientNetV2B0 congelado + CBAM (entrenado por semilla sobre el 80% de train) + CatBoost.'
+  timestamp_utc: '2026-08-31T06:12:16.927308+00:00'
+  config: dict(19)
+    experiment: 'cbam'
+    resolution_px: 80
+    backbone: 'tf_efficientnetv2_b0'
+    backbone_frozen: True
+    pooling: 'global_average_pooling'
+    classifier: 'CatBoost'
+    input_size_px: 224
+    color_space: 'RGB (cv2 BGR -> RGB)'
+    normalization: 'configs/normalization_stats.yaml :: gashisdb_80'
+    class_weights: 'frecuencia inversa (sin submuestreo)'
+    test_size: 0.2
+    cv_folds: 5
+    seeds: list(len=5) first=42
+    param_grid: dict(3)
+      iterations: list(len=3) first=300
+      learning_rate: list(len=3) first=0.05
+      depth: list(len=3) first=4
+    n_images: 146651
+    n_abnormal: 59151
+    n_normal: 87500
+    augmentation_enabled: False
+    augmentation_views_per_image: 0
+  environment: dict(3)
+    python: '3.11.9'
+    torch: '2.4.0'
+    device: 'cuda'
+  aggregated_across_seeds: dict(10)
+    accuracy: dict(3)
+      mean: 0.9179707476731103
+      std: 0.0004108245973582025
+      values: list(len=5) first=0.9178343731887764
+    balanced_accuracy: dict(3)
+      mean: 0.9181992146539961
+      std: 0.0002559997050415594
+      values: list(len=5) first=0.9182327855392008
+    precision_abnormal: dict(3)
+      mean: 0.8822272218793301
+      std: 0.002255519163043408
+      values: list(len=5) first=0.8812626467017401
+    recall_abnormal: dict(3)
+      mean: 0.9193812864508495
+      std: 0.0021082863095412173
+      values: list(len=5) first=0.9202941425069732
+    f1_abnormal: dict(3)
+      mean: 0.9004159521773071
+      std: 0.00033372130693607794
+      values: list(len=5) first=0.90035557760688
+    precision_macro: dict(3)
+      mean: 0.9130654958724416
+      std: 0.0005513135137923408
+      values: list(len=5) first=0.9128568181670812
+    recall_macro: dict(3)
+      mean: 0.9181992146539961
+      std: 0.0002559997050415594
+      values: list(len=5) first=0.9182327855392008
+    f1_macro: dict(3)
+      mean: 0.9153396827328217
+      std: 0.00037536074926360183
+      values: list(len=5) first=0.9152259382407297
+    auc_roc: dict(3)
+      mean: 0.9757494495091589
+      std: 0.00031737452108986824
+      values: list(len=5) first=0.9761051523237982
+    specificity: dict(3)
+      mean: 0.9170171428571429
+      std: 0.0019802782735808466
+      values: list(len=5) first=0.9161714285714285
+  per_seed: list(len=5)
+    [0]: dict(7)
+      seed: 42
+      n_train: 117320
+      n_test: 29331
+      best_params: dict(3)
+        iterations: 700
+        learning_rate: 0.1
+        depth: 6
+      cv: dict(8)
+        n_folds: 5
+        selection_metric: 'balanced_accuracy'
+        n_configurations: 27
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.1
+          depth: 6
+        best_cv_balanced_accuracy_mean: 0.937542180896027
+        best_cv_balanced_accuracy_std: 0.0019445129894914836
+        best_cv_fold_scores: list(len=5) first=0.9357125950972105
+        all_results: list(len=27)
+      test_metrics: dict(11)
+        accuracy: 0.9178343731887764
+        balanced_accuracy: 0.9182327855392008
+        precision_abnormal: 0.8812626467017401
+        recall_abnormal: 0.9202941425069732
+        f1_abnormal: 0.90035557760688
+        precision_macro: 0.9128568181670812
+        recall_macro: 0.9182327855392008
+        f1_macro: 0.9152259382407297
+        auc_roc: 0.9761051523237982
+        specificity: 0.9161714285714285
+        confusion_matrix: dict(5)
+          tn: 16033
+          fp: 1467
+          fn: 943
+          tp: 10888
+          labels: list(len=2) first='Normal(0)'
+      test_metrics_bootstrap_ci95: dict(4)
+        accuracy: dict(3)
+          ci95_low: 0.914865671132931
+          ci95_high: 0.9208695578057345
+          n_valid_resamples: 1000
+        balanced_accuracy: dict(3)
+          ci95_low: 0.9150911643322421
+          ci95_high: 0.9213465962906799
+          n_valid_resamples: 1000
+        f1_abnormal: dict(3)
+          ci95_low: 0.8966316069091614
+          ci95_high: 0.9042930670698082
+          n_valid_resamples: 1000
+        auc_roc: dict(3)
+          ci95_low: 0.974708544128705
+          ci95_high: 0.9774714838939637
+          n_valid_resamples: 1000
+
+================================================================================
+results/cross_size_results.json 59168 bytes
+================================================================================
+: list(len=6)
+  [0]: dict(4)
+    train_resolution: 80
+    eval_resolution: 120
+    aggregated_across_seeds: dict(10)
+      accuracy: dict(3)
+        mean: 0.8940316574983527
+        std: 0.0009138831085355205
+        values: list(len=5) first=0.8954965446438148
+      balanced_accuracy: dict(3)
+        mean: 0.8732480531187422
+        std: 0.0019071272167409856
+        values: list(len=5) first=0.875824570501608
+      precision_abnormal: dict(3)
+        mean: 0.9232072252857233
+        std: 0.0037844476280538618
+        values: list(len=5) first=0.9202150035054919
+      recall_abnormal: dict(3)
+        mean: 0.7866295713882504
+        std: 0.0061766859838436414
+        values: list(len=5) first=0.7938389581065279
+      f1_abnormal: dict(3)
+        mean: 0.8494338551132119
+        std: 0.0020795441667554268
+        values: list(len=5) first=0.852368170404364
+      precision_macro: dict(3)
+        mean: 0.9016518360038475
+        std: 0.0006404989613335456
+        values: list(len=5) first=0.9018277406621519
+      recall_macro: dict(3)
+        mean: 0.8732480531187422
+        std: 0.0019071272167409856
+        values: list(len=5) first=0.875824570501608
+      f1_macro: dict(3)
+        mean: 0.8838393875863559
+        std: 0.0012733252665082524
+        values: list(len=5) first=0.8857457862196618
+      auc_roc: dict(3)
+        mean: 0.9657818016881505
+        std: 0.00045638822224039705
+        values: list(len=5) first=0.9649672998651073
+      specificity: dict(3)
+        mean: 0.9598665348492338
+        std: 0.0024409070896305902
+        values: list(len=5) first=0.9578101828966881
+    per_seed: list(len=5)
+      [0]: dict(3)
+        seed: 42
+        best_params: dict(3)
+          iterations: 700
+          learning_rate: 0.2
+          depth: 6
+        metrics: dict(11)
+          accuracy: 0.8954965446438148
+          balanced_accuracy: 0.875824570501608
+          precision_abnormal: 0.9202150035054919
+          recall_abnormal: 0.7938389581065279
+          f1_abnormal: 0.852368170404364
+          precision_macro: 0.9018277406621519
+          recall_macro: 0.875824570501608
+          f1_macro: 0.8857457862196618
+          auc_roc: 0.9649672998651073
+          specificity: 0.9578101828966881
+          confusion_matrix: dict(5)
+            tn: 38753
+            fp: 1707
+            fn: 5113
+            tp: 19688
+            labels: list(len=2) first='Normal(0)'
+
+================================================================================
+results/interpretabilidad_estratificada_baseline_160px.json 25559 bytes
+================================================================================
+: dict(12)
+  experimento: 'baseline'
+  resolution_px: 160
+  semilla_modelo: 42
+  semilla_muestreo: 2026
+  umbral_decision: 0.5
+  confianza_alta: 0.9
+  confianza_baja: 0.7
+  n_test: 6657
+  distribucion_categorias: dict(4)
+    acierto_alta_confianza: dict(2)
+      n: 4868
+      porcentaje: 73.12603274748385
+    acierto_baja_confianza: dict(2)
+      n: 361
+      porcentaje: 5.422863151569776
+    falso_positivo: dict(2)
+      n: 258
+      porcentaje: 3.875619648490311
+    falso_negativo: dict(2)
+      n: 205
+      porcentaje: 3.079465224575635
+  escala_simetrica: 0.23919492175430349
+  agregados_por_categoria: dict(4)
+    acierto_alta_confianza: dict(7)
+      n_muestra: 12
+      n_poblacion: 4868
+      frac_masa_positiva: dict(2)
+        media: 0.28064466760138357
+        std: 0.42263024381442893
+      gini: dict(2)
+        media: 0.37664693928976994
+        std: 0.08930707889639233
+      corr_intensidad: dict(2)
+        media: -0.06294217687074831
+        std: 0.2641740289988129
+      rango_cam: dict(2)
+        media: 0.13847345021054955
+        std: 0.04763472563291782
+      prob_abnormal: dict(2)
+        media: 0.25762544683553007
+        std: 0.432765188927827
+    acierto_baja_confianza: dict(7)
+      n_muestra: 12
+      n_poblacion: 361
+      frac_masa_positiva: dict(2)
+        media: 0.5030641919634807
+        std: 0.2121282820134741
+      gini: dict(2)
+        media: 0.42289701020383325
+        std: 0.04840789570099157
+      corr_intensidad: dict(2)
+        media: -0.01678571428571427
+        std: 0.28012444530569686
+      rango_cam: dict(2)
+        media: 0.1154652912678044
+        std: 0.04917606528571484
+      prob_abnormal: dict(2)
+        media: 0.4557641617841932
+        std: 0.14296263289543598
+    falso_positivo: dict(7)
+      n_muestra: 12
+      n_poblacion: 258
+      frac_masa_positiva: dict(2)
+        media: 0.6213623730129628
+        std: 0.281247800911876
+      gini: dict(2)
+        media: 0.45808974792477447
+        std: 0.07508144046493923
+      corr_intensidad: dict(2)
+        media: -0.09460884353741496
+        std: 0.29538961087514026
+      rango_cam: dict(2)
+        media: 0.09125653754717707
+        std: 0.027335120169055604
+      prob_abnormal: dict(2)
+        media: 0.6706538485405543
+        std: 0.1303199099507739
+    falso_negativo: dict(7)
+      n_muestra: 12
+      n_poblacion: 205
+      frac_masa_positiva: dict(2)
+        media: 0.26823682924610615
+        std: 0.29542526838037064
+      gini: dict(2)
+        media: 0.4170417882724448
+        std: 0.04979036528843923
+      corr_intensidad: dict(2)
+        media: -0.06619897959183671
+        std: 0.2729323539429856
+      rango_cam: dict(2)
+        media: 0.12294199600522726
+        std: 0.03299256910668956
+      prob_abnormal: dict(2)
+        media: 0.21343802477976906
+        std: 0.16183994783173586
+  parches: list(len=48)
+    [0]: dict(11)
+      categoria: 'acierto_alta_confianza'
+      indice_global: 20129
+      path: '/workspace/dataset/GasHisSDB/GasHisSDB/160/Normal/Normal-07006.png'
+      etiqueta_real: 0
+      prediccion: 0
+      prob_abnormal: 0.05121362987311007
+      confianza: 0.9487863701268899
+      frac_masa_positiva: 0.14656352153780883
+      gini: 0.3944359829122206
+      corr_intensidad: 0.41071428571428564
+      rango_cam: 0.13025653184334002
+
+================================================================================
+results/interpretabilidad_estratificada_cbam_160px.json 25609 bytes
+================================================================================
+: dict(12)
+  experimento: 'cbam'
+  resolution_px: 160
+  semilla_modelo: 42
+  semilla_muestreo: 2026
+  umbral_decision: 0.5
+  confianza_alta: 0.9
+  confianza_baja: 0.7
+  n_test: 6657
+  distribucion_categorias: dict(4)
+    acierto_alta_confianza: dict(2)
+      n: 5900
+      porcentaje: 88.62851134144509
+    acierto_baja_confianza: dict(2)
+      n: 114
+      porcentaje: 1.7124831004957188
+    falso_positivo: dict(2)
+      n: 191
+      porcentaje: 2.869160282409494
+    falso_negativo: dict(2)
+      n: 160
+      porcentaje: 2.4034850533273246
+  escala_simetrica: 0.09675345241069319
+  agregados_por_categoria: dict(4)
+    acierto_alta_confianza: dict(7)
+      n_muestra: 12
+      n_poblacion: 5900
+      frac_masa_positiva: dict(2)
+        media: 0.5762473720289328
+        std: 0.42794000304935237
+      gini: dict(2)
+        media: 0.427505928581372
+        std: 0.07355244648047017
+      corr_intensidad: dict(2)
+        media: 0.059166666666666645
+        std: 0.30031027785251996
+      rango_cam: dict(2)
+        media: 0.0521274821968519
+        std: 0.02480083093322615
+      prob_abnormal: dict(2)
+        media: 0.4981069859166953
+        std: 0.5184596913941283
+    acierto_baja_confianza: dict(7)
+      n_muestra: 12
+      n_poblacion: 114
+      frac_masa_positiva: dict(2)
+        media: 0.38460906139438933
+        std: 0.36174318402070477
+      gini: dict(2)
+        media: 0.4282690382475693
+        std: 0.055262947337516855
+      corr_intensidad: dict(2)
+        media: 0.15674319727891156
+        std: 0.2164358269523444
+      rango_cam: dict(2)
+        media: 0.03410977500340908
+        std: 0.013167446707524186
+      prob_abnormal: dict(2)
+        media: 0.48471815942457946
+        std: 0.0901570669485627
+    falso_positivo: dict(7)
+      n_muestra: 12
+      n_poblacion: 191
+      frac_masa_positiva: dict(2)
+        media: 0.6729442270720517
+        std: 0.2884581159031706
+      gini: dict(2)
+        media: 0.44510175042579414
+        std: 0.10037084152687256
+      corr_intensidad: dict(2)
+        media: -0.06983843537414965
+        std: 0.2997331504691496
+      rango_cam: dict(2)
+        media: 0.035293517282137754
+        std: 0.018248344720631412
+      prob_abnormal: dict(2)
+        media: 0.8809892181449929
+        std: 0.12904793277626228
+    falso_negativo: dict(7)
+      n_muestra: 12
+      n_poblacion: 160
+      frac_masa_positiva: dict(2)
+        media: 0.3484486158802471
+        std: 0.3825208639487434
+      gini: dict(2)
+        media: 0.44750882556554544
+        std: 0.06302000028389436
+      corr_intensidad: dict(2)
+        media: 0.02500000000000002
+        std: 0.33708276832257583
+      rango_cam: dict(2)
+        media: 0.03944058437019545
+        std: 0.017145624879540085
+      prob_abnormal: dict(2)
+        media: 0.09647478240224884
+        std: 0.10899617881125392
+  parches: list(len=48)
+    [0]: dict(11)
+      categoria: 'acierto_alta_confianza'
+      indice_global: 8778
+      path: '/workspace/dataset/GasHisSDB/GasHisSDB/160/Abnormal/Abnormal-08779.png'
+      etiqueta_real: 1
+      prediccion: 1
+      prob_abnormal: 0.9999607897020869
+      confianza: 0.9999607897020869
+      frac_masa_positiva: 0.9819619822147314
+      gini: 0.3734128490989399
+      corr_intensidad: -0.23989795918367343
+      rango_cam: 0.04216316061284303
+
